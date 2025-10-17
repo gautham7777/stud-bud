@@ -23,7 +23,7 @@ interface AuthContextType {
     login: (email: string, pass: string) => Promise<void>;
     logout: () => void;
     signup: (email: string, username: string, pass: string) => Promise<void>;
-    updateProfile: (profile: StudentProfile) => Promise<void>;
+    updateProfile: (profile: Partial<StudentProfile>) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>(null!);
@@ -88,11 +88,14 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
         await setDoc(doc(db, "profiles", newUser.uid), newProfile);
     };
     
-    const updateProfile = async (updatedProfile: StudentProfile) => {
+    const updateProfile = async (updatedProfile: Partial<StudentProfile>) => {
         if (!currentUser) throw new Error("Not authenticated");
         const profileDocRef = doc(db, "profiles", currentUser.uid);
         await setDoc(profileDocRef, updatedProfile, { merge: true });
-        setCurrentUserProfile(updatedProfile);
+        setCurrentUserProfile(prev => {
+            if (!prev) return null;
+            return { ...prev, ...updatedProfile };
+        });
     };
 
     const value = useMemo(() => ({ currentUser, currentUserProfile, loading, login, logout, signup, updateProfile }), 
@@ -213,10 +216,15 @@ const AuthPage: React.FC = () => {
     const [confirmPassword, setConfirmPassword] = useState('');
     const [error, setError] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const { login, signup } = useAuth();
+    const { login, signup, updateProfile } = useAuth();
     const navigate = useNavigate();
 
-    const handleSubmit = async (e: React.FormEvent) => {
+    // New state for multi-step signup
+    const [signupStep, setSignupStep] = useState(1);
+    const [subjectsNeedHelp, setSubjectsNeedHelp] = useState<number[]>([]);
+    const [subjectsCanHelp, setSubjectsCanHelp] = useState<number[]>([]);
+
+    const handleCredentialsSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
         setIsSubmitting(true);
@@ -227,60 +235,127 @@ const AuthPage: React.FC = () => {
             } else {
                 if (password !== confirmPassword) {
                     setError('Passwords do not match.');
+                    setIsSubmitting(false);
                     return;
                 }
                 await signup(email, username, password);
-                navigate('/');
+                setSignupStep(2); // Move to the next step
             }
         } catch (err: any) {
             setError(err.message || 'An error occurred.');
         } finally {
-            setIsSubmitting(false);
+            if (isLogin) setIsSubmitting(false); // only stop submitting for login, signup continues
         }
     };
 
+    const handleProfileSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setError('');
+        setIsSubmitting(true);
+        try {
+            await updateProfile({ subjectsNeedHelp, subjectsCanHelp });
+            navigate('/');
+        } catch(err: any) {
+            setError(err.message || "Failed to save profile.");
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+    
+    const handleSubjectSelect = (type: 'need' | 'can', subjectId: number) => {
+        const updater = type === 'need' ? setSubjectsNeedHelp : setSubjectsCanHelp;
+        updater(prev => prev.includes(subjectId) ? prev.filter(id => id !== subjectId) : [...prev, subjectId]);
+    };
+
+    const toggleForm = () => {
+      setIsLogin(!isLogin);
+      setError('');
+      setSignupStep(1);
+    }
+
     return (
         <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-            <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
-                <BookOpenIcon className="mx-auto h-12 w-auto text-primary" />
-                <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-                    {isLogin ? 'Sign in to your account' : 'Create a new account'}
-                </h2>
-            </div>
-            <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-                <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
-                    <form className="space-y-6" onSubmit={handleSubmit}>
-                        {!isLogin && (
-                             <div>
-                                <label htmlFor="username" className="block text-sm font-medium text-gray-700">Username</label>
-                                <div className="mt-1"><input id="username" name="username" type="text" required value={username} onChange={e => setUsername(e.target.value)} className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm"/></div>
+            {signupStep === 1 ? (
+                <>
+                    <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
+                        <BookOpenIcon className="mx-auto h-12 w-auto text-primary" />
+                        <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
+                            {isLogin ? 'Sign in to your account' : 'Create a new account'}
+                        </h2>
+                    </div>
+                    <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+                        <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
+                            <form className="space-y-6" onSubmit={handleCredentialsSubmit}>
+                                {!isLogin && (
+                                    <div>
+                                        <label htmlFor="username" className="block text-sm font-medium text-gray-700">Username</label>
+                                        <div className="mt-1"><input id="username" name="username" type="text" required value={username} onChange={e => setUsername(e.target.value)} className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm"/></div>
+                                    </div>
+                                )}
+                                <div>
+                                    <label htmlFor="email" className="block text-sm font-medium text-gray-700">Email address</label>
+                                    <div className="mt-1"><input id="email" name="email" type="email" autoComplete="email" required value={email} onChange={e => setEmail(e.target.value)} className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm" /></div>
+                                </div>
+                                <div>
+                                    <label htmlFor="password"  className="block text-sm font-medium text-gray-700">Password</label>
+                                    <div className="mt-1"><input id="password" name="password" type="password" required value={password} onChange={e => setPassword(e.target.value)} className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm"/></div>
+                                </div>
+                                {!isLogin && (
+                                    <div>
+                                        <label htmlFor="confirm-password"  className="block text-sm font-medium text-gray-700">Confirm Password</label>
+                                        <div className="mt-1"><input id="confirm-password" name="confirm-password" type="password" required value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm"/></div>
+                                    </div>
+                                )}
+
+                                {error && <p className="text-sm text-red-600">{error}</p>}
+
+                                <div><button type="submit" disabled={isSubmitting} className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:opacity-50">{isSubmitting ? 'Processing...' : (isLogin ? 'Sign in' : 'Continue')}</button></div>
+                            </form>
+                            <div className="mt-6">
+                                <div className="relative"><div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-300" /></div><div className="relative flex justify-center text-sm"><span className="px-2 bg-white text-gray-500">Or</span></div></div>
+                                <div className="mt-6"><button onClick={toggleForm} className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">{isLogin ? 'Create an account' : 'Sign in instead'}</button></div>
                             </div>
-                        )}
-                        <div>
-                            <label htmlFor="email" className="block text-sm font-medium text-gray-700">Email address</label>
-                            <div className="mt-1"><input id="email" name="email" type="email" autoComplete="email" required value={email} onChange={e => setEmail(e.target.value)} className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm" /></div>
                         </div>
-                        <div>
-                            <label htmlFor="password"  className="block text-sm font-medium text-gray-700">Password</label>
-                            <div className="mt-1"><input id="password" name="password" type="password" required value={password} onChange={e => setPassword(e.target.value)} className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm"/></div>
-                        </div>
-                         {!isLogin && (
+                    </div>
+                </>
+            ) : (
+                <div className="sm:mx-auto sm:w-full sm:max-w-3xl">
+                    <h2 className="text-center text-3xl font-extrabold text-gray-900">One last step, {username}!</h2>
+                    <p className="mt-2 text-center text-sm text-gray-600">This helps us find your perfect study buddy.</p>
+                    <div className="mt-8 bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
+                        <form className="space-y-8" onSubmit={handleProfileSubmit}>
                             <div>
-                                <label htmlFor="confirm-password"  className="block text-sm font-medium text-gray-700">Confirm Password</label>
-                                <div className="mt-1"><input id="confirm-password" name="confirm-password" type="password" required value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm"/></div>
+                                <h3 className="text-lg font-semibold text-gray-800">Subjects I need help with:</h3>
+                                <div className="mt-4 grid grid-cols-2 md:grid-cols-3 gap-4">
+                                    {ALL_SUBJECTS.map(subject => (
+                                        <label key={`need-${subject.id}`} className="flex items-center space-x-2 p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition has-[:checked]:bg-yellow-100 has-[:checked]:ring-2 has-[:checked]:ring-yellow-400">
+                                            <input type="checkbox" onChange={() => handleSubjectSelect('need', subject.id)} className="form-checkbox h-5 w-5 text-primary rounded focus:ring-primary"/>
+                                            <span>{subject.name}</span>
+                                        </label>
+                                    ))}
+                                </div>
                             </div>
-                         )}
-
-                        {error && <p className="text-sm text-red-600">{error}</p>}
-
-                        <div><button type="submit" disabled={isSubmitting} className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:opacity-50">{isSubmitting ? 'Processing...' : (isLogin ? 'Sign in' : 'Sign up')}</button></div>
-                    </form>
-                    <div className="mt-6">
-                        <div className="relative"><div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-300" /></div><div className="relative flex justify-center text-sm"><span className="px-2 bg-white text-gray-500">Or</span></div></div>
-                        <div className="mt-6"><button onClick={() => { setIsLogin(!isLogin); setError('')} } className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">{isLogin ? 'Create an account' : 'Sign in instead'}</button></div>
+                            <div>
+                                <h3 className="text-lg font-semibold text-gray-800">Subjects I can help with:</h3>
+                                <div className="mt-4 grid grid-cols-2 md:grid-cols-3 gap-4">
+                                    {ALL_SUBJECTS.map(subject => (
+                                        <label key={`can-${subject.id}`} className="flex items-center space-x-2 p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition has-[:checked]:bg-green-100 has-[:checked]:ring-2 has-[:checked]:ring-green-400">
+                                            <input type="checkbox" onChange={() => handleSubjectSelect('can', subject.id)} className="form-checkbox h-5 w-5 text-secondary rounded focus:ring-secondary"/>
+                                            <span>{subject.name}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+                            {error && <p className="text-sm text-red-600">{error}</p>}
+                            <div>
+                                <button type="submit" disabled={isSubmitting} className="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-lg font-medium text-white bg-secondary hover:bg-emerald-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-secondary disabled:opacity-50">
+                                    {isSubmitting ? 'Saving...' : 'Finish & Find Buddies!'}
+                                </button>
+                            </div>
+                        </form>
                     </div>
                 </div>
-            </div>
+            )}
         </div>
     );
 };
@@ -426,9 +501,9 @@ const DiscoverPage: React.FC = () => {
         return <div className="container mx-auto p-8"><p>Finding potential buddies...</p></div>
     }
 
-    if (!currentUserProfile) {
+    if (!currentUserProfile || (currentUserProfile.subjectsCanHelp.length === 0 && currentUserProfile.subjectsNeedHelp.length === 0)) {
         return <div className="container mx-auto p-8 text-center">
-            <p>Please complete your profile first to discover other students.</p>
+            <p className="text-lg text-gray-700">Please complete your profile first to discover other students.</p>
             <Link to="/profile" className="mt-4 inline-block bg-primary text-white font-bold py-2 px-4 rounded-lg hover:bg-indigo-700 transition">Go to Profile</Link>
         </div>;
     }

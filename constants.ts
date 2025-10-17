@@ -1,14 +1,16 @@
 import { Subject, LearningStyle, StudyMethod } from './types';
 
 export const ALL_SUBJECTS: Subject[] = [
-  { id: 1, name: 'Mathematics' },
-  { id: 2, name: 'Physics' },
-  { id: 3, name: 'World History' },
-  { id: 4, name: 'Chemistry' },
+  { id: 1, name: 'Physics' },
+  { id: 2, name: 'Chemistry' },
+  { id: 3, name: 'Mathematics' },
+  { id: 4, name: 'Biology' },
   { id: 5, name: 'Computer Science' },
-  { id: 6, name: 'Literature' },
-  { id: 7, name: 'Biology' },
-  { id: 8, name: 'Art History' },
+  { id: 6, name: 'Informatics Practices' },
+  { id: 7, name: 'Commerce' },
+  { id: 8, name: 'Business Studies' },
+  { id: 9, name: 'Economics' },
+  { id: 10, name: 'English' },
 ];
 
 export const ALL_AVAILABILITY_OPTIONS: string[] = [
