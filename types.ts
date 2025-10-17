@@ -55,7 +55,11 @@ export interface SharedContent {
 }
 
 export interface StudyRequest {
+  id: string;
   fromUserId: string;
+  fromUsername: string;
   toUserId: string;
+  toUsername: string;
   status: 'pending' | 'accepted' | 'declined';
+  createdAt: number;
 }

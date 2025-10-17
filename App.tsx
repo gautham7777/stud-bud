@@ -12,7 +12,7 @@ import {
   createUserWithEmailAndPassword,
   signOut,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, collection, getDocs, updateDoc, query, where } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, getDocs, updateDoc, query, where, addDoc, onSnapshot } from 'firebase/firestore';
 
 
 // --- AUTH CONTEXT ---
@@ -93,7 +93,7 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
         const profileDocRef = doc(db, "profiles", currentUser.uid);
         await setDoc(profileDocRef, updatedProfile, { merge: true });
         setCurrentUserProfile(prev => {
-            if (!prev) return null;
+            if (!prev) return { userId: currentUser.uid, ...updatedProfile } as StudentProfile;
             return { ...prev, ...updatedProfile };
         });
     };
@@ -176,35 +176,66 @@ const Header: React.FC = () => {
 
 const getSubjectName = (id: number) => ALL_SUBJECTS.find(s => s.id === id)?.name || 'Unknown';
 
-const UserCard: React.FC<{ user: User; profile: StudentProfile; onConnect: (userId: string) => void }> = ({ user, profile, onConnect }) => (
-    <div className="bg-surface rounded-xl shadow-lg p-6 flex flex-col gap-4 hover:shadow-xl transition-shadow duration-300">
-        <div className="flex items-center gap-4">
-            <img src={`https://i.pravatar.cc/80?u=${user.uid}`} alt={user.username} className="w-20 h-20 rounded-full" />
+const UserCard: React.FC<{ 
+    user: User; 
+    profile: StudentProfile; 
+    onConnect: () => void;
+    requestStatus: 'pending' | 'accepted' | 'declined' | null;
+}> = ({ user, profile, onConnect, requestStatus }) => {
+    
+    const getButtonContent = () => {
+        switch(requestStatus) {
+            case 'pending':
+                return <><CheckCircleIcon className="w-5 h-5"/> Request Sent</>;
+            case 'accepted':
+                return <><UsersIcon className="w-5 h-5"/> Connected</>;
+            case 'declined':
+                return <><XCircleIcon className="w-5 h-5"/> Declined</>;
+            default:
+                return <><PlusCircleIcon className="w-5 h-5"/> Send Request</>;
+        }
+    };
+
+    const getButtonClasses = () => {
+        let baseClasses = "w-full font-bold py-2 px-4 rounded-lg transition duration-300 flex items-center justify-center gap-2";
+        if (requestStatus === 'accepted') {
+            return `${baseClasses} bg-green-500 text-white cursor-default`;
+        }
+        if (requestStatus) {
+            return `${baseClasses} bg-gray-400 text-white cursor-not-allowed`;
+        }
+        return `${baseClasses} bg-primary text-onPrimary hover:bg-indigo-700`;
+    }
+
+    return (
+        <div className="bg-surface rounded-xl shadow-lg p-6 flex flex-col gap-4 hover:shadow-xl transition-shadow duration-300">
+            <div className="flex items-center gap-4">
+                <img src={`https://i.pravatar.cc/80?u=${user.uid}`} alt={user.username} className="w-20 h-20 rounded-full" />
+                <div>
+                    <h3 className="text-2xl font-bold text-primary">{user.username}</h3>
+                    <p className="text-gray-500 italic">"{profile.bio || 'No bio yet.'}"</p>
+                </div>
+            </div>
             <div>
-                <h3 className="text-2xl font-bold text-primary">{user.username}</h3>
-                <p className="text-gray-500 italic">"{profile.bio || 'No bio yet.'}"</p>
+                <h4 className="font-semibold text-gray-700">Can Help With:</h4>
+                <div className="flex flex-wrap gap-2 mt-1">
+                    {profile.subjectsCanHelp.length > 0 ? profile.subjectsCanHelp.map(id => <span key={id} className="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded-full">{getSubjectName(id)}</span>) : <span className="text-gray-400 text-sm">Nothing listed</span>}
+                </div>
+            </div>
+            <div>
+                <h4 className="font-semibold text-gray-700">Needs Help With:</h4>
+                <div className="flex flex-wrap gap-2 mt-1">
+                     {profile.subjectsNeedHelp.length > 0 ? profile.subjectsNeedHelp.map(id => <span key={id} className="bg-yellow-100 text-yellow-800 text-xs font-medium px-2.5 py-0.5 rounded-full">{getSubjectName(id)}</span>) : <span className="text-gray-400 text-sm">Nothing listed</span>}
+                </div>
+            </div>
+            <div className="mt-auto pt-4">
+                <button onClick={onConnect} disabled={!!requestStatus} className={getButtonClasses()}>
+                   {getButtonContent()}
+                </button>
             </div>
         </div>
-        <div>
-            <h4 className="font-semibold text-gray-700">Can Help With:</h4>
-            <div className="flex flex-wrap gap-2 mt-1">
-                {profile.subjectsCanHelp.length > 0 ? profile.subjectsCanHelp.map(id => <span key={id} className="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded-full">{getSubjectName(id)}</span>) : <span className="text-gray-400 text-sm">Nothing listed</span>}
-            </div>
-        </div>
-        <div>
-            <h4 className="font-semibold text-gray-700">Needs Help With:</h4>
-            <div className="flex flex-wrap gap-2 mt-1">
-                 {profile.subjectsNeedHelp.length > 0 ? profile.subjectsNeedHelp.map(id => <span key={id} className="bg-yellow-100 text-yellow-800 text-xs font-medium px-2.5 py-0.5 rounded-full">{getSubjectName(id)}</span>) : <span className="text-gray-400 text-sm">Nothing listed</span>}
-            </div>
-        </div>
-        <div className="mt-auto pt-4">
-            <button onClick={() => onConnect(user.uid)} className="w-full bg-primary text-onPrimary font-bold py-2 px-4 rounded-lg hover:bg-indigo-700 transition duration-300 flex items-center justify-center gap-2">
-                <PlusCircleIcon />
-                Send Request
-            </button>
-        </div>
-    </div>
-);
+    );
+};
 
 // --- PAGES ---
 
@@ -471,11 +502,12 @@ const DiscoverPage: React.FC = () => {
     const { currentUser, currentUserProfile } = useAuth();
     const [allUsers, setAllUsers] = useState<{user: User, profile: StudentProfile}[]>([]);
     const [loading, setLoading] = useState(true);
-    const [studyRequests, setStudyRequests] = useState<StudyRequest[]>([]);
+    const [sentRequests, setSentRequests] = useState<StudyRequest[]>([]);
 
     useEffect(() => {
+        if (!currentUser) return;
+
         const fetchUsers = async () => {
-            if (!currentUser) return;
             setLoading(true);
             const usersQuery = query(collection(db, "users"), where("email", "!=", currentUser.email));
             const usersSnapshot = await getDocs(usersQuery);
@@ -489,13 +521,46 @@ const DiscoverPage: React.FC = () => {
 
             const combinedData = usersData
                 .map(user => ({ user, profile: profilesData.get(user.uid)! }))
-                .filter(item => item.profile); // Ensure profile exists
+                .filter(item => item.profile); 
 
             setAllUsers(combinedData);
             setLoading(false);
         };
+        
         fetchUsers();
+
+        const requestsQuery = query(collection(db, "studyRequests"), where("fromUserId", "==", currentUser.uid));
+        const unsubscribe = onSnapshot(requestsQuery, (snapshot) => {
+            const requests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as StudyRequest));
+            setSentRequests(requests);
+        });
+
+        return () => unsubscribe();
     }, [currentUser]);
+    
+    const getRequestStatus = (targetUserId: string) => {
+        const request = sentRequests.find(r => r.toUserId === targetUserId);
+        return request ? request.status : null;
+    }
+
+    const handleConnect = async (toUser: User) => {
+        if (!currentUser || getRequestStatus(toUser.uid)) return;
+
+        try {
+            const newRequest: Omit<StudyRequest, 'id'> = {
+                fromUserId: currentUser.uid,
+                fromUsername: currentUser.username,
+                toUserId: toUser.uid,
+                toUsername: toUser.username,
+                status: 'pending',
+                createdAt: Date.now(),
+            };
+            await addDoc(collection(db, "studyRequests"), newRequest);
+        } catch (error) {
+            console.error("Error sending request: ", error);
+            alert("Failed to send request.");
+        }
+    };
 
     if (loading) {
         return <div className="container mx-auto p-8"><p>Finding potential buddies...</p></div>
@@ -510,6 +575,7 @@ const DiscoverPage: React.FC = () => {
 
     const calculateMatchScore = (otherProfile: StudentProfile) => {
         let score = 0;
+        if (!currentUserProfile) return 0;
         const needsMet = currentUserProfile.subjectsNeedHelp.filter(s => otherProfile.subjectsCanHelp.includes(s)).length;
         const canHelpMet = currentUserProfile.subjectsCanHelp.filter(s => otherProfile.subjectsNeedHelp.includes(s)).length;
         score += (needsMet + canHelpMet) * 20;
@@ -532,19 +598,18 @@ const DiscoverPage: React.FC = () => {
         .filter(m => m.score > 0)
         .sort((a, b) => b.score - a.score);
     
-    const handleConnect = (toUserId: string) => {
-        if (!studyRequests.some(r => r.toUserId === toUserId && r.fromUserId === currentUser!.uid)) {
-            setStudyRequests(prev => [...prev, { fromUserId: currentUser!.uid, toUserId, status: 'pending' }]);
-            alert('Study request sent!'); // Placeholder for a real notification system
-        }
-    };
-    
     return (
         <div className="container mx-auto p-8">
              <h1 className="text-3xl font-bold mb-6">Find a Study Buddy</h1>
              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                 {potentialMatches.map(({ user, profile }) => (
-                    <UserCard key={user.uid} user={user} profile={profile} onConnect={handleConnect} />
+                    <UserCard 
+                        key={user.uid} 
+                        user={user} 
+                        profile={profile} 
+                        onConnect={() => handleConnect(user)}
+                        requestStatus={getRequestStatus(user.uid)}
+                    />
                 ))}
              </div>
              {potentialMatches.length === 0 && <p className="text-center text-gray-500 col-span-full">No matches found. Try broadening your profile criteria!</p>}
@@ -554,6 +619,37 @@ const DiscoverPage: React.FC = () => {
 
 const HomePage: React.FC = () => {
     const { currentUser } = useAuth();
+    const [incomingRequests, setIncomingRequests] = useState<StudyRequest[]>([]);
+    const [loadingRequests, setLoadingRequests] = useState(true);
+
+    useEffect(() => {
+        if (!currentUser) return;
+        setLoadingRequests(true);
+        const q = query(
+            collection(db, "studyRequests"), 
+            where("toUserId", "==", currentUser.uid), 
+            where("status", "==", "pending")
+        );
+
+        const unsubscribe = onSnapshot(q, (querySnapshot) => {
+            const requests = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as StudyRequest));
+            setIncomingRequests(requests);
+            setLoadingRequests(false);
+        });
+
+        return () => unsubscribe(); // Cleanup listener
+    }, [currentUser]);
+
+    const handleRequestResponse = async (requestId: string, newStatus: 'accepted' | 'declined') => {
+        try {
+            const requestDocRef = doc(db, "studyRequests", requestId);
+            await updateDoc(requestDocRef, { status: newStatus });
+        } catch (error) {
+            console.error("Error updating request: ", error);
+            alert("Failed to update request.");
+        }
+    };
+
     return (
         <div className="container mx-auto p-8">
              <h1 className="text-4xl font-bold text-gray-800">Welcome back, {currentUser?.username}!</h1>
@@ -565,7 +661,23 @@ const HomePage: React.FC = () => {
                 </div>
                  <div className="bg-surface p-6 rounded-lg shadow-md">
                     <h2 className="text-xl font-semibold flex items-center gap-2"><ChatBubbleIcon/> Pending Requests</h2>
-                    <p className="mt-4 text-gray-500">You have no pending study requests.</p>
+                    {loadingRequests ? (
+                        <p className="mt-4 text-gray-500">Loading requests...</p>
+                    ) : incomingRequests.length > 0 ? (
+                        <ul className="mt-4 space-y-3">
+                            {incomingRequests.map(req => (
+                                <li key={req.id} className="flex items-center justify-between p-2 bg-gray-50 rounded-md">
+                                    <span className="text-gray-700">Request from <span className="font-bold">{req.fromUsername}</span></span>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => handleRequestResponse(req.id, 'accepted')} className="p-1 text-green-600 hover:bg-green-100 rounded-full" title="Accept"><CheckCircleIcon className="w-6 h-6" /></button>
+                                        <button onClick={() => handleRequestResponse(req.id, 'declined')} className="p-1 text-red-600 hover:bg-red-100 rounded-full" title="Decline"><XCircleIcon className="w-6 h-6" /></button>
+                                    </div>
+                                </li>
+                            ))}
+                        </ul>
+                    ) : (
+                        <p className="mt-4 text-gray-500">You have no pending study requests.</p>
+                    )}
                 </div>
                  <div className="bg-surface p-6 rounded-lg shadow-md">
                     <h2 className="text-xl font-semibold flex items-center gap-2"><SearchIcon/> Quick Links</h2>
