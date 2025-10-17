@@ -22,7 +22,7 @@ interface AuthContextType {
     loading: boolean;
     login: (email: string, pass: string) => Promise<void>;
     logout: () => void;
-    signup: (email: string, username: string, pass: string) => Promise<void>;
+    signup: (email: string, username: string, pass: string, profileData: { subjectsNeedHelp: number[], subjectsCanHelp: number[] }) => Promise<void>;
     updateProfile: (profile: Partial<StudentProfile>) => Promise<void>;
 }
 
@@ -34,31 +34,45 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-            if (firebaseUser) {
-                const userDocRef = doc(db, "users", firebaseUser.uid);
-                const profileDocRef = doc(db, "profiles", firebaseUser.uid);
-                
-                const [userDocSnap, profileDocSnap] = await Promise.all([
-                    getDoc(userDocRef),
-                    getDoc(profileDocRef)
-                ]);
+        let userUnsubscribe: () => void = () => {};
+        let profileUnsubscribe: () => void = () => {};
 
-                if (userDocSnap.exists()) {
-                    setCurrentUser({ uid: firebaseUser.uid, ...userDocSnap.data() } as User);
-                }
-                if (profileDocSnap.exists()) {
-                    setCurrentUserProfile(profileDocSnap.data() as StudentProfile);
-                } else {
-                     setCurrentUserProfile(null); // Explicitly null if profile doesn't exist
-                }
+        const authUnsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+            userUnsubscribe();
+            profileUnsubscribe();
+
+            if (firebaseUser) {
+                setLoading(true);
+                const userDocRef = doc(db, "users", firebaseUser.uid);
+                userUnsubscribe = onSnapshot(userDocRef, (docSnap) => {
+                    if (docSnap.exists()) {
+                        setCurrentUser({ uid: docSnap.id, ...docSnap.data() } as User);
+                    } else {
+                        setCurrentUser(null);
+                    }
+                });
+
+                const profileDocRef = doc(db, "profiles", firebaseUser.uid);
+                profileUnsubscribe = onSnapshot(profileDocRef, (docSnap) => {
+                    if (docSnap.exists()) {
+                        setCurrentUserProfile(docSnap.data() as StudentProfile);
+                    } else {
+                        setCurrentUserProfile(null);
+                    }
+                    setLoading(false);
+                });
             } else {
                 setCurrentUser(null);
                 setCurrentUserProfile(null);
+                setLoading(false);
             }
-            setLoading(false);
         });
-        return () => unsubscribe();
+
+        return () => {
+            authUnsubscribe();
+            userUnsubscribe();
+            profileUnsubscribe();
+        };
     }, []);
 
     const login = async (email: string, pass: string) => {
@@ -69,33 +83,29 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
         signOut(auth);
     };
 
-    const signup = async (email: string, username: string, pass: string) => {
+    const signup = async (email: string, username: string, pass: string, profileData: { subjectsNeedHelp: number[], subjectsCanHelp: number[] }) => {
         const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
         const firebaseUser = userCredential.user;
 
-        const newUser: User = { uid: firebaseUser.uid, email, username, connections: [] };
+        await setDoc(doc(db, "users", firebaseUser.uid), {email, username, connections: []});
+        
         const newProfile: StudentProfile = {
-            userId: newUser.uid,
+            userId: firebaseUser.uid,
             bio: '',
             learningStyle: LearningStyle.Visual,
             preferredMethods: [],
             availability: [],
-            subjectsNeedHelp: [],
-            subjectsCanHelp: [],
+            subjectsNeedHelp: profileData.subjectsNeedHelp,
+            subjectsCanHelp: profileData.subjectsCanHelp,
         };
-
-        await setDoc(doc(db, "users", newUser.uid), {email, username, connections: []});
-        await setDoc(doc(db, "profiles", newUser.uid), newProfile);
+        await setDoc(doc(db, "profiles", firebaseUser.uid), newProfile);
     };
     
     const updateProfile = async (updatedProfile: Partial<StudentProfile>) => {
         if (!currentUser) throw new Error("Not authenticated");
         const profileDocRef = doc(db, "profiles", currentUser.uid);
+        // Rely on onSnapshot to update the local state, ensuring a single source of truth.
         await setDoc(profileDocRef, updatedProfile, { merge: true });
-        setCurrentUserProfile(prev => {
-            if (!prev) return { userId: currentUser.uid, ...updatedProfile } as StudentProfile;
-            return { ...prev, ...updatedProfile };
-        });
     };
 
     const value = useMemo(() => ({ currentUser, currentUserProfile, loading, login, logout, signup, updateProfile }), 
@@ -247,49 +257,44 @@ const AuthPage: React.FC = () => {
     const [confirmPassword, setConfirmPassword] = useState('');
     const [error, setError] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const { login, signup, updateProfile } = useAuth();
+    const { login, signup } = useAuth();
     const navigate = useNavigate();
 
-    // New state for multi-step signup
     const [signupStep, setSignupStep] = useState(1);
     const [subjectsNeedHelp, setSubjectsNeedHelp] = useState<number[]>([]);
     const [subjectsCanHelp, setSubjectsCanHelp] = useState<number[]>([]);
 
-    const handleCredentialsSubmit = async (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
         setIsSubmitting(true);
-        try {
-            if (isLogin) {
+
+        if (isLogin) {
+            try {
                 await login(email, password);
                 navigate('/');
-            } else {
+            } catch (err: any) {
+                setError(err.message || 'Failed to sign in.');
+                setIsSubmitting(false);
+            }
+        } else {
+            if (signupStep === 1) {
                 if (password !== confirmPassword) {
                     setError('Passwords do not match.');
                     setIsSubmitting(false);
                     return;
                 }
-                await signup(email, username, password);
-                setSignupStep(2); // Move to the next step
+                setSignupStep(2);
+                setIsSubmitting(false);
+            } else {
+                try {
+                    await signup(email, username, password, { subjectsNeedHelp, subjectsCanHelp });
+                    navigate('/');
+                } catch (err: any) {
+                    setError(err.message || "Failed to create account.");
+                    setIsSubmitting(false);
+                }
             }
-        } catch (err: any) {
-            setError(err.message || 'An error occurred.');
-        } finally {
-            if (isLogin) setIsSubmitting(false); // only stop submitting for login, signup continues
-        }
-    };
-
-    const handleProfileSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setError('');
-        setIsSubmitting(true);
-        try {
-            await updateProfile({ subjectsNeedHelp, subjectsCanHelp });
-            navigate('/');
-        } catch(err: any) {
-            setError(err.message || "Failed to save profile.");
-        } finally {
-            setIsSubmitting(false);
         }
     };
     
@@ -306,17 +311,18 @@ const AuthPage: React.FC = () => {
 
     return (
         <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-            {signupStep === 1 ? (
-                <>
-                    <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
-                        <BookOpenIcon className="mx-auto h-12 w-auto text-primary" />
-                        <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-                            {isLogin ? 'Sign in to your account' : 'Create a new account'}
-                        </h2>
-                    </div>
-                    <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-                        <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
-                            <form className="space-y-6" onSubmit={handleCredentialsSubmit}>
+            <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
+                <BookOpenIcon className="mx-auto h-12 w-auto text-primary" />
+                <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
+                    {isLogin ? 'Sign in to your account' : signupStep === 1 ? 'Create a new account' : `One last step, ${username}!`}
+                </h2>
+                {signupStep === 2 && <p className="mt-2 text-center text-sm text-gray-600">This helps us find your perfect study buddy.</p>}
+            </div>
+            <div className={`mt-8 sm:mx-auto sm:w-full ${signupStep === 1 ? 'sm:max-w-md' : 'sm:max-w-3xl'}`}>
+                <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
+                    <form className="space-y-6" onSubmit={handleSubmit}>
+                        {signupStep === 1 ? (
+                            <>
                                 {!isLogin && (
                                     <div>
                                         <label htmlFor="username" className="block text-sm font-medium text-gray-700">Username</label>
@@ -337,56 +343,48 @@ const AuthPage: React.FC = () => {
                                         <div className="mt-1"><input id="confirm-password" name="confirm-password" type="password" required value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm"/></div>
                                     </div>
                                 )}
-
-                                {error && <p className="text-sm text-red-600">{error}</p>}
-
-                                <div><button type="submit" disabled={isSubmitting} className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:opacity-50">{isSubmitting ? 'Processing...' : (isLogin ? 'Sign in' : 'Continue')}</button></div>
-                            </form>
-                            <div className="mt-6">
-                                <div className="relative"><div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-300" /></div><div className="relative flex justify-center text-sm"><span className="px-2 bg-white text-gray-500">Or</span></div></div>
-                                <div className="mt-6"><button onClick={toggleForm} className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">{isLogin ? 'Create an account' : 'Sign in instead'}</button></div>
-                            </div>
+                            </>
+                        ) : (
+                            <div className="space-y-8">
+                                <div>
+                                    <h3 className="text-lg font-semibold text-gray-800">Subjects I need help with:</h3>
+                                    <div className="mt-4 grid grid-cols-2 md:grid-cols-3 gap-4">
+                                        {ALL_SUBJECTS.map(subject => (
+                                            <label key={`need-${subject.id}`} className="flex items-center space-x-2 p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition has-[:checked]:bg-yellow-100 has-[:checked]:ring-2 has-[:checked]:ring-yellow-400">
+                                                <input type="checkbox" onChange={() => handleSubjectSelect('need', subject.id)} className="form-checkbox h-5 w-5 text-primary rounded focus:ring-primary"/>
+                                                <span>{subject.name}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-semibold text-gray-800">Subjects I can help with:</h3>
+                                    <div className="mt-4 grid grid-cols-2 md:grid-cols-3 gap-4">
+                                        {ALL_SUBJECTS.map(subject => (
+                                            <label key={`can-${subject.id}`} className="flex items-center space-x-2 p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition has-[:checked]:bg-green-100 has-[:checked]:ring-2 has-[:checked]:ring-green-400">
+                                                <input type="checkbox" onChange={() => handleSubjectSelect('can', subject.id)} className="form-checkbox h-5 w-5 text-secondary rounded focus:ring-secondary"/>
+                                                <span>{subject.name}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                </div>
+                             </div>
+                        )}
+                        {error && <p className="text-sm text-red-600 mt-2 text-center">{error}</p>}
+                        <div>
+                            <button type="submit" disabled={isSubmitting} className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:opacity-50">
+                                {isSubmitting ? 'Processing...' : (isLogin ? 'Sign in' : (signupStep === 1 ? 'Continue' : 'Finish & Find Buddies!'))}
+                            </button>
                         </div>
-                    </div>
-                </>
-            ) : (
-                <div className="sm:mx-auto sm:w-full sm:max-w-3xl">
-                    <h2 className="text-center text-3xl font-extrabold text-gray-900">One last step, {username}!</h2>
-                    <p className="mt-2 text-center text-sm text-gray-600">This helps us find your perfect study buddy.</p>
-                    <div className="mt-8 bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
-                        <form className="space-y-8" onSubmit={handleProfileSubmit}>
-                            <div>
-                                <h3 className="text-lg font-semibold text-gray-800">Subjects I need help with:</h3>
-                                <div className="mt-4 grid grid-cols-2 md:grid-cols-3 gap-4">
-                                    {ALL_SUBJECTS.map(subject => (
-                                        <label key={`need-${subject.id}`} className="flex items-center space-x-2 p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition has-[:checked]:bg-yellow-100 has-[:checked]:ring-2 has-[:checked]:ring-yellow-400">
-                                            <input type="checkbox" onChange={() => handleSubjectSelect('need', subject.id)} className="form-checkbox h-5 w-5 text-primary rounded focus:ring-primary"/>
-                                            <span>{subject.name}</span>
-                                        </label>
-                                    ))}
-                                </div>
-                            </div>
-                            <div>
-                                <h3 className="text-lg font-semibold text-gray-800">Subjects I can help with:</h3>
-                                <div className="mt-4 grid grid-cols-2 md:grid-cols-3 gap-4">
-                                    {ALL_SUBJECTS.map(subject => (
-                                        <label key={`can-${subject.id}`} className="flex items-center space-x-2 p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition has-[:checked]:bg-green-100 has-[:checked]:ring-2 has-[:checked]:ring-green-400">
-                                            <input type="checkbox" onChange={() => handleSubjectSelect('can', subject.id)} className="form-checkbox h-5 w-5 text-secondary rounded focus:ring-secondary"/>
-                                            <span>{subject.name}</span>
-                                        </label>
-                                    ))}
-                                </div>
-                            </div>
-                            {error && <p className="text-sm text-red-600">{error}</p>}
-                            <div>
-                                <button type="submit" disabled={isSubmitting} className="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-lg font-medium text-white bg-secondary hover:bg-emerald-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-secondary disabled:opacity-50">
-                                    {isSubmitting ? 'Saving...' : 'Finish & Find Buddies!'}
-                                </button>
-                            </div>
-                        </form>
-                    </div>
+                    </form>
+                     {signupStep === 1 && (
+                         <div className="mt-6">
+                            <div className="relative"><div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-300" /></div><div className="relative flex justify-center text-sm"><span className="px-2 bg-white text-gray-500">Or</span></div></div>
+                            <div className="mt-6"><button onClick={toggleForm} className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">{isLogin ? 'Create an account' : 'Sign in instead'}</button></div>
+                        </div>
+                    )}
                 </div>
-            )}
+            </div>
         </div>
     );
 };
@@ -503,11 +501,10 @@ const DiscoverPage: React.FC = () => {
     const [allUsers, setAllUsers] = useState<{user: User, profile: StudentProfile}[]>([]);
     const [loading, setLoading] = useState(true);
     const [sentRequests, setSentRequests] = useState<StudyRequest[]>([]);
-    const [connections, setConnections] = useState<string[]>([]);
+    const connections = useMemo(() => currentUser?.connections || [], [currentUser]);
 
     useEffect(() => {
         if (!currentUser) return;
-        setConnections(currentUser.connections || []);
 
         const fetchUsers = async () => {
             setLoading(true);
@@ -625,11 +622,11 @@ const HomePage: React.FC = () => {
     const [incomingRequests, setIncomingRequests] = useState<StudyRequest[]>([]);
     const [loadingRequests, setLoadingRequests] = useState(true);
     const [buddies, setBuddies] = useState<User[]>([]);
+    const [loadingBuddies, setLoadingBuddies] = useState(true);
 
     useEffect(() => {
         if (!currentUser) return;
 
-        // Listener for incoming requests
         const q = query(
             collection(db, "studyRequests"), 
             where("toUserId", "==", currentUser.uid), 
@@ -640,41 +637,50 @@ const HomePage: React.FC = () => {
             setIncomingRequests(requests);
             setLoadingRequests(false);
         });
-
-        // Fetch connected buddies
+        
+        return () => {
+            unsubscribeRequests();
+        };
+    }, [currentUser]);
+    
+    useEffect(() => {
+        if (!currentUser?.connections) {
+            setBuddies([]);
+            setLoadingBuddies(false);
+            return;
+        }
+        
         const fetchBuddies = async () => {
-            if (currentUser.connections && currentUser.connections.length > 0) {
-                 const buddyPromises = currentUser.connections.map(uid => getDoc(doc(db, "users", uid)));
-                 const buddyDocs = await Promise.all(buddyPromises);
-                 const buddyData = buddyDocs.map(doc => ({uid: doc.id, ...doc.data()}) as User);
-                 setBuddies(buddyData);
+             setLoadingBuddies(true);
+            if (currentUser.connections.length > 0) {
+                 try {
+                    const buddyPromises = currentUser.connections.map(uid => getDoc(doc(db, "users", uid)));
+                    const buddyDocs = await Promise.all(buddyPromises);
+                    const buddyData = buddyDocs
+                        .filter(doc => doc.exists())
+                        .map(doc => ({uid: doc.id, ...doc.data()}) as User);
+                    setBuddies(buddyData);
+                 } catch (error) {
+                    console.error("Error fetching buddies: ", error);
+                    setBuddies([]);
+                 }
             } else {
                 setBuddies([]);
             }
+            setLoadingBuddies(false);
         };
 
-        // Listen for changes in user's connections
-        const unsubscribeUser = onSnapshot(doc(db, "users", currentUser.uid), (doc) => {
-            const updatedUser = doc.data() as User;
-            if (JSON.stringify(updatedUser.connections) !== JSON.stringify(currentUser.connections)) {
-               fetchBuddies();
-            }
-        });
-        
         fetchBuddies();
+    }, [currentUser?.connections]);
 
-        return () => {
-            unsubscribeRequests();
-            unsubscribeUser();
-        };
-    }, [currentUser]);
 
     const handleRequestResponse = async (request: StudyRequest, newStatus: 'accepted' | 'declined') => {
+        if (!currentUser) return;
         try {
             const requestDocRef = doc(db, "studyRequests", request.id);
             await updateDoc(requestDocRef, { status: newStatus });
 
-            if (newStatus === 'accepted' && currentUser) {
+            if (newStatus === 'accepted') {
                 const currentUserRef = doc(db, "users", currentUser.uid);
                 const otherUserRef = doc(db, "users", request.fromUserId);
 
@@ -694,7 +700,9 @@ const HomePage: React.FC = () => {
              <div className="mt-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <div className="bg-surface p-6 rounded-lg shadow-md lg:col-span-2">
                     <h2 className="text-xl font-semibold flex items-center gap-2"><UsersIcon/> My Buddies</h2>
-                     {buddies.length > 0 ? (
+                     {loadingBuddies ? (
+                         <p className="mt-4 text-gray-500">Loading buddies...</p>
+                     ) : buddies.length > 0 ? (
                         <ul className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
                             {buddies.map(buddy => (
                                 <li key={buddy.uid} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
@@ -746,30 +754,49 @@ const MessagesPage: React.FC = () => {
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        if (!currentUser?.connections || currentUser.connections.length === 0) return;
+        if (!currentUser?.connections) {
+            setBuddies([]);
+            return;
+        };
 
         const fetchBuddies = async () => {
-            const buddyPromises = currentUser.connections!.map(uid => getDoc(doc(db, "users", uid)));
+            if (currentUser.connections.length === 0) {
+                setBuddies([]);
+                return;
+            }
+            const buddyPromises = currentUser.connections.map(uid => getDoc(doc(db, "users", uid)));
             const buddyDocs = await Promise.all(buddyPromises);
-            const buddyData = buddyDocs.map(doc => ({ uid: doc.id, ...doc.data() }) as User);
+            const buddyData = buddyDocs
+                .filter(d => d.exists())
+                .map(doc => ({ uid: doc.id, ...doc.data() }) as User);
+            
             setBuddies(buddyData);
             
-            // Auto-select buddy if passed from location state or select the first one
-            const initialBuddyId = location.state?.selectedBuddyId;
-            if (initialBuddyId) {
-                const buddy = buddyData.find(b => b.uid === initialBuddyId);
-                if (buddy) setSelectedBuddy(buddy);
-                 // Clear location state after using it
-                navigate(location.pathname, { replace: true });
-            } else if (buddyData.length > 0) {
-                 setSelectedBuddy(buddyData[0]);
+            if (buddyData.length > 0) {
+                const initialBuddyId = location.state?.selectedBuddyId;
+                const buddyToSelect = initialBuddyId ? buddyData.find(b => b.uid === initialBuddyId) : buddyData[0];
+                
+                if (buddyToSelect) {
+                    setSelectedBuddy(buddyToSelect);
+                } else if (!selectedBuddy) {
+                    setSelectedBuddy(buddyData[0]);
+                }
+                
+                if (initialBuddyId) {
+                    navigate(location.pathname, { replace: true, state: {} });
+                }
+            } else {
+                 setSelectedBuddy(null);
             }
         };
         fetchBuddies();
-    }, [currentUser]);
+    }, [currentUser?.connections, location.state]);
 
     useEffect(() => {
-        if (!selectedBuddy || !currentUser) return;
+        if (!selectedBuddy || !currentUser) {
+            setMessages([]);
+            return;
+        };
         
         const conversationId = [currentUser.uid, selectedBuddy.uid].sort().join('-');
         const messagesQuery = query(collection(db, "conversations", conversationId, "messages"), orderBy("timestamp", "asc"));
@@ -800,6 +827,8 @@ const MessagesPage: React.FC = () => {
             timestamp: Date.now(),
             conversationId,
         });
+        
+        await setDoc(conversationRef, { participants: [currentUser.uid, selectedBuddy.uid]}, { merge: true });
 
         setNewMessage('');
     };
