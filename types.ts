@@ -15,6 +15,7 @@ export interface User {
   uid: string;
   email: string;
   username: string;
+  connections?: string[]; // Array of user UIDs
 }
 
 export interface StudentProfile {
@@ -45,7 +46,7 @@ export interface Message {
   senderId: string;
   conversationId: string; // e.g., "user-uid1-user-uid2" or "group-id"
   text: string;
-  timestamp: string;
+  timestamp: number;
 }
 
 export interface SharedContent {
@@ -55,7 +56,7 @@ export interface SharedContent {
 }
 
 export interface StudyRequest {
-  id: string;
+  id:string;
   fromUserId: string;
   fromUsername: string;
   toUserId: string;

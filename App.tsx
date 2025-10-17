@@ -1,4 +1,4 @@
-import React, { useState, useContext, createContext, useMemo, useEffect } from 'react';
+import React, { useState, useContext, createContext, useMemo, useEffect, useRef } from 'react';
 import { HashRouter, Routes, Route, Link, Navigate, useLocation, useParams, useNavigate } from 'react-router-dom';
 import { User, StudentProfile, StudyGroup, Message, SharedContent, StudyRequest, Subject, LearningStyle, StudyMethod } from './types';
 import { ALL_SUBJECTS, ALL_AVAILABILITY_OPTIONS, ALL_LEARNING_STYLES, ALL_STUDY_METHODS } from './constants';
@@ -12,7 +12,7 @@ import {
   createUserWithEmailAndPassword,
   signOut,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, collection, getDocs, updateDoc, query, where, addDoc, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, getDocs, updateDoc, query, where, addDoc, onSnapshot, arrayUnion, Timestamp, orderBy } from 'firebase/firestore';
 
 
 // --- AUTH CONTEXT ---
@@ -73,7 +73,7 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
         const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
         const firebaseUser = userCredential.user;
 
-        const newUser: User = { uid: firebaseUser.uid, email, username };
+        const newUser: User = { uid: firebaseUser.uid, email, username, connections: [] };
         const newProfile: StudentProfile = {
             userId: newUser.uid,
             bio: '',
@@ -84,7 +84,7 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
             subjectsCanHelp: [],
         };
 
-        await setDoc(doc(db, "users", newUser.uid), {email, username});
+        await setDoc(doc(db, "users", newUser.uid), {email, username, connections: []});
         await setDoc(doc(db, "profiles", newUser.uid), newProfile);
     };
     
@@ -503,9 +503,11 @@ const DiscoverPage: React.FC = () => {
     const [allUsers, setAllUsers] = useState<{user: User, profile: StudentProfile}[]>([]);
     const [loading, setLoading] = useState(true);
     const [sentRequests, setSentRequests] = useState<StudyRequest[]>([]);
+    const [connections, setConnections] = useState<string[]>([]);
 
     useEffect(() => {
         if (!currentUser) return;
+        setConnections(currentUser.connections || []);
 
         const fetchUsers = async () => {
             setLoading(true);
@@ -539,6 +541,7 @@ const DiscoverPage: React.FC = () => {
     }, [currentUser]);
     
     const getRequestStatus = (targetUserId: string) => {
+        if (connections.includes(targetUserId)) return 'accepted';
         const request = sentRequests.find(r => r.toUserId === targetUserId);
         return request ? request.status : null;
     }
@@ -621,29 +624,63 @@ const HomePage: React.FC = () => {
     const { currentUser } = useAuth();
     const [incomingRequests, setIncomingRequests] = useState<StudyRequest[]>([]);
     const [loadingRequests, setLoadingRequests] = useState(true);
+    const [buddies, setBuddies] = useState<User[]>([]);
 
     useEffect(() => {
         if (!currentUser) return;
-        setLoadingRequests(true);
+
+        // Listener for incoming requests
         const q = query(
             collection(db, "studyRequests"), 
             where("toUserId", "==", currentUser.uid), 
             where("status", "==", "pending")
         );
-
-        const unsubscribe = onSnapshot(q, (querySnapshot) => {
+        const unsubscribeRequests = onSnapshot(q, (querySnapshot) => {
             const requests = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as StudyRequest));
             setIncomingRequests(requests);
             setLoadingRequests(false);
         });
 
-        return () => unsubscribe(); // Cleanup listener
+        // Fetch connected buddies
+        const fetchBuddies = async () => {
+            if (currentUser.connections && currentUser.connections.length > 0) {
+                 const buddyPromises = currentUser.connections.map(uid => getDoc(doc(db, "users", uid)));
+                 const buddyDocs = await Promise.all(buddyPromises);
+                 const buddyData = buddyDocs.map(doc => ({uid: doc.id, ...doc.data()}) as User);
+                 setBuddies(buddyData);
+            } else {
+                setBuddies([]);
+            }
+        };
+
+        // Listen for changes in user's connections
+        const unsubscribeUser = onSnapshot(doc(db, "users", currentUser.uid), (doc) => {
+            const updatedUser = doc.data() as User;
+            if (JSON.stringify(updatedUser.connections) !== JSON.stringify(currentUser.connections)) {
+               fetchBuddies();
+            }
+        });
+        
+        fetchBuddies();
+
+        return () => {
+            unsubscribeRequests();
+            unsubscribeUser();
+        };
     }, [currentUser]);
 
-    const handleRequestResponse = async (requestId: string, newStatus: 'accepted' | 'declined') => {
+    const handleRequestResponse = async (request: StudyRequest, newStatus: 'accepted' | 'declined') => {
         try {
-            const requestDocRef = doc(db, "studyRequests", requestId);
+            const requestDocRef = doc(db, "studyRequests", request.id);
             await updateDoc(requestDocRef, { status: newStatus });
+
+            if (newStatus === 'accepted' && currentUser) {
+                const currentUserRef = doc(db, "users", currentUser.uid);
+                const otherUserRef = doc(db, "users", request.fromUserId);
+
+                await updateDoc(currentUserRef, { connections: arrayUnion(request.fromUserId) });
+                await updateDoc(otherUserRef, { connections: arrayUnion(currentUser.uid) });
+            }
         } catch (error) {
             console.error("Error updating request: ", error);
             alert("Failed to update request.");
@@ -655,9 +692,23 @@ const HomePage: React.FC = () => {
              <h1 className="text-4xl font-bold text-gray-800">Welcome back, {currentUser?.username}!</h1>
              <p className="mt-2 text-lg text-gray-600">Here's your study dashboard.</p>
              <div className="mt-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                <div className="bg-surface p-6 rounded-lg shadow-md">
-                    <h2 className="text-xl font-semibold flex items-center gap-2"><UsersIcon/> My Study Groups</h2>
-                    <p className="mt-4 text-gray-500">No active groups yet. <Link to="/discover" className="text-primary hover:underline">Find a partner</Link> to start one!</p>
+                <div className="bg-surface p-6 rounded-lg shadow-md lg:col-span-2">
+                    <h2 className="text-xl font-semibold flex items-center gap-2"><UsersIcon/> My Buddies</h2>
+                     {buddies.length > 0 ? (
+                        <ul className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            {buddies.map(buddy => (
+                                <li key={buddy.uid} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                                    <div className="flex items-center gap-3">
+                                        <img src={`https://i.pravatar.cc/40?u=${buddy.uid}`} alt={buddy.username} className="w-10 h-10 rounded-full" />
+                                        <span className="font-semibold text-gray-800">{buddy.username}</span>
+                                    </div>
+                                    <Link to="/messages" state={{ selectedBuddyId: buddy.uid }} className="text-sm text-primary hover:underline">Message</Link>
+                                </li>
+                            ))}
+                        </ul>
+                    ) : (
+                        <p className="mt-4 text-gray-500">No active buddies yet. <Link to="/discover" className="text-primary hover:underline">Find a partner</Link> to get started!</p>
+                    )}
                 </div>
                  <div className="bg-surface p-6 rounded-lg shadow-md">
                     <h2 className="text-xl font-semibold flex items-center gap-2"><ChatBubbleIcon/> Pending Requests</h2>
@@ -669,8 +720,8 @@ const HomePage: React.FC = () => {
                                 <li key={req.id} className="flex items-center justify-between p-2 bg-gray-50 rounded-md">
                                     <span className="text-gray-700">Request from <span className="font-bold">{req.fromUsername}</span></span>
                                     <div className="flex gap-2">
-                                        <button onClick={() => handleRequestResponse(req.id, 'accepted')} className="p-1 text-green-600 hover:bg-green-100 rounded-full" title="Accept"><CheckCircleIcon className="w-6 h-6" /></button>
-                                        <button onClick={() => handleRequestResponse(req.id, 'declined')} className="p-1 text-red-600 hover:bg-red-100 rounded-full" title="Decline"><XCircleIcon className="w-6 h-6" /></button>
+                                        <button onClick={() => handleRequestResponse(req, 'accepted')} className="p-1 text-green-600 hover:bg-green-100 rounded-full" title="Accept"><CheckCircleIcon className="w-6 h-6" /></button>
+                                        <button onClick={() => handleRequestResponse(req, 'declined')} className="p-1 text-red-600 hover:bg-red-100 rounded-full" title="Decline"><XCircleIcon className="w-6 h-6" /></button>
                                     </div>
                                 </li>
                             ))}
@@ -679,28 +730,135 @@ const HomePage: React.FC = () => {
                         <p className="mt-4 text-gray-500">You have no pending study requests.</p>
                     )}
                 </div>
-                 <div className="bg-surface p-6 rounded-lg shadow-md">
-                    <h2 className="text-xl font-semibold flex items-center gap-2"><SearchIcon/> Quick Links</h2>
-                    <ul className="mt-4 space-y-2">
-                        <li><Link to="/profile" className="text-primary hover:underline">Update Your Profile</Link></li>
-                        <li><Link to="/discover" className="text-primary hover:underline">Discover New Partners</Link></li>
-                        <li><Link to="/messages" className="text-primary hover:underline">Check Your Messages</Link></li>
-                    </ul>
-                </div>
              </div>
         </div>
     );
 };
 
-const MessagesPage: React.FC = () => (
-    <div className="container mx-auto p-8">
-        <h1 className="text-3xl font-bold mb-6">Messages</h1>
-        <div className="bg-surface p-8 rounded-lg shadow-md text-center">
-            <ChatBubbleIcon className="h-16 w-16 mx-auto text-gray-300" />
-            <p className="mt-4 text-gray-500">Your message inbox is empty. Connect with a study buddy to start a conversation.</p>
+const MessagesPage: React.FC = () => {
+    const { currentUser } = useAuth();
+    const location = useLocation();
+    const navigate = useNavigate();
+    const [buddies, setBuddies] = useState<User[]>([]);
+    const [selectedBuddy, setSelectedBuddy] = useState<User | null>(null);
+    const [messages, setMessages] = useState<Message[]>([]);
+    const [newMessage, setNewMessage] = useState('');
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (!currentUser?.connections || currentUser.connections.length === 0) return;
+
+        const fetchBuddies = async () => {
+            const buddyPromises = currentUser.connections!.map(uid => getDoc(doc(db, "users", uid)));
+            const buddyDocs = await Promise.all(buddyPromises);
+            const buddyData = buddyDocs.map(doc => ({ uid: doc.id, ...doc.data() }) as User);
+            setBuddies(buddyData);
+            
+            // Auto-select buddy if passed from location state or select the first one
+            const initialBuddyId = location.state?.selectedBuddyId;
+            if (initialBuddyId) {
+                const buddy = buddyData.find(b => b.uid === initialBuddyId);
+                if (buddy) setSelectedBuddy(buddy);
+                 // Clear location state after using it
+                navigate(location.pathname, { replace: true });
+            } else if (buddyData.length > 0) {
+                 setSelectedBuddy(buddyData[0]);
+            }
+        };
+        fetchBuddies();
+    }, [currentUser]);
+
+    useEffect(() => {
+        if (!selectedBuddy || !currentUser) return;
+        
+        const conversationId = [currentUser.uid, selectedBuddy.uid].sort().join('-');
+        const messagesQuery = query(collection(db, "conversations", conversationId, "messages"), orderBy("timestamp", "asc"));
+
+        const unsubscribe = onSnapshot(messagesQuery, (snapshot) => {
+            const fetchedMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
+            setMessages(fetchedMessages);
+        });
+
+        return () => unsubscribe();
+    }, [selectedBuddy, currentUser]);
+
+    useEffect(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, [messages]);
+
+    const handleSendMessage = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!newMessage.trim() || !currentUser || !selectedBuddy) return;
+
+        const conversationId = [currentUser.uid, selectedBuddy.uid].sort().join('-');
+        const conversationRef = doc(db, "conversations", conversationId);
+        const messagesColRef = collection(conversationRef, "messages");
+
+        await addDoc(messagesColRef, {
+            senderId: currentUser.uid,
+            text: newMessage,
+            timestamp: Date.now(),
+            conversationId,
+        });
+
+        setNewMessage('');
+    };
+    
+    return (
+        <div className="container mx-auto p-4 md:p-8">
+            <h1 className="text-3xl font-bold mb-6">Messages</h1>
+            <div className="flex flex-col md:flex-row bg-surface shadow-lg rounded-lg h-[75vh]">
+                {/* Buddies List */}
+                <div className="w-full md:w-1/3 border-r border-gray-200 flex flex-col">
+                    <div className="p-4 border-b border-gray-200">
+                        <h2 className="text-xl font-semibold">Contacts</h2>
+                    </div>
+                    <ul className="overflow-y-auto">
+                        {buddies.map(buddy => (
+                            <li key={buddy.uid} onClick={() => setSelectedBuddy(buddy)} className={`p-4 flex items-center gap-3 cursor-pointer hover:bg-gray-100 ${selectedBuddy?.uid === buddy.uid ? 'bg-indigo-50' : ''}`}>
+                                <img src={`https://i.pravatar.cc/48?u=${buddy.uid}`} alt={buddy.username} className="w-12 h-12 rounded-full" />
+                                <div>
+                                    <p className="font-semibold">{buddy.username}</p>
+                                </div>
+                            </li>
+                        ))}
+                         {buddies.length === 0 && <p className="p-4 text-gray-500">No buddies yet.</p>}
+                    </ul>
+                </div>
+
+                {/* Chat Window */}
+                <div className="w-full md:w-2/3 flex flex-col">
+                    {selectedBuddy ? (
+                        <>
+                            <div className="p-4 border-b border-gray-200 flex items-center gap-3">
+                                 <img src={`https://i.pravatar.cc/40?u=${selectedBuddy.uid}`} alt={selectedBuddy.username} className="w-10 h-10 rounded-full" />
+                                <h2 className="text-xl font-semibold">{selectedBuddy.username}</h2>
+                            </div>
+                            <div className="flex-1 p-4 overflow-y-auto bg-gray-50">
+                                {messages.map(msg => (
+                                    <div key={msg.id} className={`flex mb-4 ${msg.senderId === currentUser?.uid ? 'justify-end' : 'justify-start'}`}>
+                                        <div className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${msg.senderId === currentUser?.uid ? 'bg-primary text-white' : 'bg-gray-200 text-gray-800'}`}>
+                                            <p>{msg.text}</p>
+                                        </div>
+                                    </div>
+                                ))}
+                                <div ref={messagesEndRef} />
+                            </div>
+                            <form onSubmit={handleSendMessage} className="p-4 border-t border-gray-200 flex gap-2">
+                                <input type="text" value={newMessage} onChange={e => setNewMessage(e.target.value)} placeholder="Type a message..." className="flex-1 p-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"/>
+                                <button type="submit" className="px-4 py-2 bg-primary text-white font-semibold rounded-lg hover:bg-indigo-700 transition">Send</button>
+                            </form>
+                        </>
+                    ) : (
+                        <div className="flex-1 flex items-center justify-center text-gray-500">
+                            <p>Select a buddy to start chatting.</p>
+                        </div>
+                    )}
+                </div>
+            </div>
         </div>
-    </div>
-);
+    );
+};
 
 const GroupPage: React.FC = () => {
     const { id } = useParams();
