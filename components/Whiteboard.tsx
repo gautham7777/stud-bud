@@ -1,4 +1,3 @@
-
 import React, { useRef, useEffect, useState } from 'react';
 
 interface WhiteboardProps {
@@ -16,7 +15,7 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ width, height, onDraw, initialD
   const drawLine = (
     ctx: CanvasRenderingContext2D,
     x0: number, y0: number, x1: number, y1: number,
-    color: string = 'black',
+    color: string = '#e5e7eb', // Default to light gray for dark mode
     emit: boolean = false
   ) => {
     ctx.beginPath();
@@ -39,14 +38,15 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ width, height, onDraw, initialD
     const context = canvas.getContext('2d');
     if (!context) return;
     
-    const redraw = () => {
-        context.clearRect(0, 0, canvas.width, canvas.height);
-        drawingData.forEach(data => {
-            drawLine(context, data.x0, data.y0, data.x1, data.y1, data.color);
-        });
-    }
-    redraw();
-  }, [drawingData]);
+    // Clear with a fill to ensure background is not transparent
+    context.fillStyle = '#1f2937'; // surface color
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    
+    drawingData.forEach(data => {
+        drawLine(context, data.x0, data.y0, data.x1, data.y1, data.color);
+    });
+
+  }, [drawingData, width, height]);
 
   useEffect(() => {
     setDrawingData(initialData || []);
@@ -73,7 +73,7 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ width, height, onDraw, initialD
         offsetY - movementY,
         offsetX,
         offsetY,
-        'black',
+        '#e5e7eb',
         true
     );
   };
@@ -88,18 +88,18 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ width, height, onDraw, initialD
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-4">
+    <div className="bg-surface rounded-lg shadow-lg p-4">
         <canvas
             ref={canvasRef}
             width={width}
             height={height}
-            className="border border-gray-300 rounded-md cursor-crosshair"
+            className="border border-gray-600 rounded-md cursor-crosshair"
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             onMouseOut={handleMouseUp}
         />
-        <button onClick={handleClear} className="mt-2 px-4 py-2 bg-danger text-white rounded-md hover:bg-red-700 transition">Clear</button>
+        <button onClick={handleClear} className="mt-2 px-4 py-2 bg-danger text-white font-semibold rounded-md hover:bg-rose-500 transition">Clear</button>
     </div>
   );
 };

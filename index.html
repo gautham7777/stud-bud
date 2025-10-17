@@ -6,20 +6,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Study Buddy Finder</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script>
       tailwind.config = {
         theme: {
           extend: {
+            fontFamily: {
+              sans: ['Poppins', 'sans-serif'],
+            },
             colors: {
-              primary: '#4f46e5',
-              secondary: '#10b981',
-              background: '#f8fafc',
-              surface: '#ffffff',
+              primary: '#6366f1', // A brighter indigo
+              secondary: '#14b8a6', // A brighter teal
+              background: '#111827', // Dark blue-gray
+              surface: '#1f2937', // Slightly lighter dark blue-gray
               onPrimary: '#ffffff',
               onSecondary: '#ffffff',
-              onBackground: '#1f2937',
-              onSurface: '#1f2937',
-              danger: '#ef4444',
+              onBackground: '#e5e7eb', // Light gray for text
+              onSurface: '#d1d5db', // Medium gray for text
+              danger: '#f43f5e', // A brighter red/rose
             }
           }
         }
@@ -35,10 +41,26 @@
     "firebase/app": "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js",
     "firebase/auth": "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js",
     "firebase/firestore": "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js",
-    "firebase/": "https://aistudiocdn.com/firebase@^12.4.0/"
+    "firebase/storage": "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js",
+    "firebase/": "https://aistudiocdn.com/firebase@^12.4.0/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^0.14.0"
   }
 }
 </script>
+<style>
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .animate-fadeIn {
+    animation: fadeIn 0.5s ease-in-out forwards;
+  }
+  body {
+    font-family: 'Poppins', sans-serif;
+    background-color: #111827;
+    background-image: radial-gradient(circle at top left, #1e1b4b, #111827 50%);
+  }
+</style>
 </head>
   <body class="bg-background text-onBackground">
     <div id="root"></div>

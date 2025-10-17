@@ -54,3 +54,16 @@ export const SearchIcon: React.FC<{ className?: string }> = ({ className = 'w-6 
         <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
     </svg>
 );
+
+export const SparklesIcon: React.FC<{ className?: string }> = ({ className = 'w-6 h-6' }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.293 2.293a1 1 0 010 1.414L10 12l-2 2-2.293-2.293a1 1 0 010-1.414L10 6l-2-2zm12 12l2.293 2.293a1 1 0 010 1.414L16 22l-2 2-2.293-2.293a1 1 0 010-1.414L16 18l-2-2z" />
+  </svg>
+);
+
+export const TrophyIcon: React.FC<{ className?: string }> = ({ className = 'w-6 h-6' }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 18.75h-9a9.75 9.75 0 119 0z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12.75 12.75V18.75m0 0H9.375m3.375 0H12m0-6.042a3 3 0 00-3-3h-1.5a3 3 0 00-3 3v.042m6 0v-.042a3 3 0 013-3h1.5a3 3 0 013 3v.042" />
+    </svg>
+  );

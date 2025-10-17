@@ -2,17 +2,19 @@ import React, { useState, useContext, createContext, useMemo, useEffect, useRef 
 import { HashRouter, Routes, Route, Link, Navigate, useLocation, useParams, useNavigate } from 'react-router-dom';
 import { User, StudentProfile, StudyGroup, Message, SharedContent, StudyRequest, Subject, LearningStyle, StudyMethod } from './types';
 import { ALL_SUBJECTS, ALL_AVAILABILITY_OPTIONS, ALL_LEARNING_STYLES, ALL_STUDY_METHODS } from './constants';
-import { BookOpenIcon, UsersIcon, ChatBubbleIcon, UserCircleIcon, LogoutIcon, CheckCircleIcon, XCircleIcon, PlusCircleIcon, SearchIcon } from './components/icons';
+import { BookOpenIcon, UsersIcon, ChatBubbleIcon, UserCircleIcon, LogoutIcon, CheckCircleIcon, XCircleIcon, PlusCircleIcon, SearchIcon, SparklesIcon, TrophyIcon } from './components/icons';
 import Whiteboard from './components/Whiteboard';
 
-import { auth, db } from './firebase';
+import { auth, db, storage } from './firebase';
 import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, collection, getDocs, updateDoc, query, where, addDoc, onSnapshot, arrayUnion, Timestamp, orderBy } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, getDocs, updateDoc, query, where, addDoc, onSnapshot, arrayUnion, Timestamp, orderBy, serverTimestamp } from 'firebase/firestore';
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { GoogleGenAI } from "@google/genai";
 
 
 // --- AUTH CONTEXT ---
@@ -87,7 +89,7 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
         const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
         const firebaseUser = userCredential.user;
 
-        await setDoc(doc(db, "users", firebaseUser.uid), {email, username, connections: []});
+        await setDoc(doc(db, "users", firebaseUser.uid), {email, username, connections: [], photoURL: null});
         
         const newProfile: StudentProfile = {
             userId: firebaseUser.uid,
@@ -97,16 +99,38 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
             availability: [],
             subjectsNeedHelp: profileData.subjectsNeedHelp,
             subjectsCanHelp: profileData.subjectsCanHelp,
+            badges: [],
         };
         await setDoc(doc(db, "profiles", firebaseUser.uid), newProfile);
     };
     
-    const updateProfile = async (updatedProfile: Partial<StudentProfile>) => {
-        if (!currentUser) throw new Error("Not authenticated");
-        const profileDocRef = doc(db, "profiles", currentUser.uid);
-        // Rely on onSnapshot to update the local state, ensuring a single source of truth.
-        await setDoc(profileDocRef, updatedProfile, { merge: true });
+     const checkForBadges = (profile: StudentProfile): string[] => {
+        const newBadges: string[] = [];
+        const isComplete = profile.bio && 
+                           profile.learningStyle &&
+                           profile.preferredMethods.length > 0 &&
+                           profile.availability.length > 0;
+        if (isComplete) {
+            newBadges.push("Profile Pro");
+        }
+        return newBadges;
     };
+
+    const updateProfile = async (updatedProfile: Partial<StudentProfile>) => {
+        if (!currentUser || !currentUserProfile) throw new Error("Not authenticated");
+        
+        const newProfileData = { ...currentUserProfile, ...updatedProfile };
+        
+        const existingBadges = newProfileData.badges || [];
+        const earnedBadges = checkForBadges(newProfileData);
+        const allBadges = [...new Set([...existingBadges, ...earnedBadges])];
+        
+        const finalProfile = { ...updatedProfile, badges: allBadges };
+        
+        const profileDocRef = doc(db, "profiles", currentUser.uid);
+        await setDoc(profileDocRef, finalProfile, { merge: true });
+    };
+
 
     const value = useMemo(() => ({ currentUser, currentUserProfile, loading, login, logout, signup, updateProfile }), 
         [currentUser, currentUserProfile, loading]
@@ -135,6 +159,24 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
     return <>{children}</>;
 };
 
+const Avatar: React.FC<{ user: User | null, className?: string}> = ({ user, className = 'w-10 h-10' }) => {
+    if (!user) return <div className={`rounded-full bg-gray-700 ${className}`} />;
+
+    if (user.photoURL) {
+        return <img src={user.photoURL} alt={user.username} className={`rounded-full object-cover ${className}`} />;
+    }
+    
+    const initial = user.username ? user.username.charAt(0).toUpperCase() : '?';
+    const colors = ['bg-indigo-500', 'bg-emerald-500', 'bg-amber-500', 'bg-rose-500', 'bg-sky-500'];
+    const color = colors[user.username.charCodeAt(0) % colors.length];
+
+    return (
+        <div className={`rounded-full flex items-center justify-center text-white font-bold ${color} ${className}`}>
+            <span>{initial}</span>
+        </div>
+    );
+};
+
 // --- CORE UI COMPONENTS ---
 const Header: React.FC = () => {
     const { currentUser, logout } = useAuth();
@@ -149,13 +191,13 @@ const Header: React.FC = () => {
     if (!currentUser) return null;
 
     return (
-        <header className="bg-surface shadow-md sticky top-0 z-10">
+        <header className="bg-surface/70 backdrop-blur-sm shadow-lg sticky top-0 z-20">
             <nav className="container mx-auto px-4 sm:px-6 lg:px-8">
                 <div className="flex items-center justify-between h-16">
                     <div className="flex items-center">
-                        <Link to="/" className="flex-shrink-0 flex items-center gap-2 text-primary font-bold text-xl">
+                        <Link to="/" className="flex-shrink-0 flex items-center gap-2 text-primary font-bold text-xl transition-transform hover:scale-105">
                             <BookOpenIcon className="h-8 w-8" />
-                            <span>StudyBuddy</span>
+                            <span className="text-onBackground">StudyBuddy</span>
                         </Link>
                     </div>
                     <div className="hidden md:block">
@@ -164,7 +206,7 @@ const Header: React.FC = () => {
                                 <Link
                                     key={item.path}
                                     to={item.path}
-                                    className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium ${location.pathname === item.path ? 'bg-primary text-onPrimary' : 'text-gray-500 hover:bg-gray-100'}`}
+                                    className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 ${location.pathname === item.path ? 'bg-primary text-onPrimary shadow-md' : 'text-onSurface hover:bg-surface/50 hover:text-onBackground'}`}
                                 >
                                     <item.icon className="h-5 w-5" />
                                     {item.label}
@@ -172,9 +214,9 @@ const Header: React.FC = () => {
                             ))}
                         </div>
                     </div>
-                    <div className="flex items-center">
-                         <span className="text-gray-600 mr-4">Welcome, {currentUser.username}!</span>
-                        <button onClick={logout} className="p-2 rounded-full text-gray-400 hover:text-primary hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary">
+                    <div className="flex items-center gap-4">
+                         <Avatar user={currentUser} className="w-10 h-10" />
+                        <button onClick={logout} className="p-2 rounded-full text-onSurface hover:text-primary hover:bg-surface/50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-background focus:ring-primary transition-colors duration-200">
                             <LogoutIcon className="h-6 w-6" />
                         </button>
                     </div>
@@ -186,12 +228,23 @@ const Header: React.FC = () => {
 
 const getSubjectName = (id: number) => ALL_SUBJECTS.find(s => s.id === id)?.name || 'Unknown';
 
+const Badge: React.FC<{ badge: string }> = ({ badge }) => (
+    <span className="flex items-center gap-1 bg-amber-500/20 text-amber-300 text-xs font-medium px-2.5 py-0.5 rounded-full border border-amber-500/50">
+        <TrophyIcon className="w-3 h-3" />
+        {badge}
+    </span>
+);
+
+
 const UserCard: React.FC<{ 
     user: User; 
     profile: StudentProfile; 
     onConnect: () => void;
     requestStatus: 'pending' | 'accepted' | 'declined' | null;
-}> = ({ user, profile, onConnect, requestStatus }) => {
+    style?: React.CSSProperties;
+    // Fix: Add className to props to allow passing CSS classes for styling.
+    className?: string;
+}> = ({ user, profile, onConnect, requestStatus, style, className }) => {
     
     const getButtonContent = () => {
         switch(requestStatus) {
@@ -207,37 +260,45 @@ const UserCard: React.FC<{
     };
 
     const getButtonClasses = () => {
-        let baseClasses = "w-full font-bold py-2 px-4 rounded-lg transition duration-300 flex items-center justify-center gap-2";
+        let baseClasses = "w-full font-bold py-3 px-4 rounded-lg transition-all duration-300 flex items-center justify-center gap-2 transform active:scale-95";
         if (requestStatus === 'accepted') {
             return `${baseClasses} bg-green-500 text-white cursor-default`;
         }
         if (requestStatus) {
-            return `${baseClasses} bg-gray-400 text-white cursor-not-allowed`;
+            return `${baseClasses} bg-gray-600 text-gray-400 cursor-not-allowed`;
         }
-        return `${baseClasses} bg-primary text-onPrimary hover:bg-indigo-700`;
+        return `${baseClasses} bg-primary text-onPrimary hover:bg-indigo-500 hover:scale-105 hover:shadow-[0_0_15px_rgba(99,102,241,0.5)]`;
     }
 
     return (
-        <div className="bg-surface rounded-xl shadow-lg p-6 flex flex-col gap-4 hover:shadow-xl transition-shadow duration-300">
+        <div style={style} className={`bg-surface rounded-xl shadow-lg p-6 flex flex-col gap-4 transition-all duration-300 hover:shadow-2xl hover:-translate-y-1 hover:shadow-primary/20 border border-transparent hover:border-primary/50 ${className || ''}`}>
             <div className="flex items-center gap-4">
-                <img src={`https://i.pravatar.cc/80?u=${user.uid}`} alt={user.username} className="w-20 h-20 rounded-full" />
+                <Avatar user={user} className="w-20 h-20 text-3xl"/>
                 <div>
                     <h3 className="text-2xl font-bold text-primary">{user.username}</h3>
-                    <p className="text-gray-500 italic">"{profile.bio || 'No bio yet.'}"</p>
+                    <p className="text-onSurface italic">"{profile.bio || 'No bio yet.'}"</p>
                 </div>
             </div>
             <div>
-                <h4 className="font-semibold text-gray-700">Can Help With:</h4>
+                <h4 className="font-semibold text-onBackground">Can Help With:</h4>
                 <div className="flex flex-wrap gap-2 mt-1">
-                    {profile.subjectsCanHelp.length > 0 ? profile.subjectsCanHelp.map(id => <span key={id} className="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded-full">{getSubjectName(id)}</span>) : <span className="text-gray-400 text-sm">Nothing listed</span>}
+                    {profile.subjectsCanHelp.length > 0 ? profile.subjectsCanHelp.map(id => <span key={id} className="bg-green-500/20 text-green-300 text-xs font-medium px-2.5 py-0.5 rounded-full">{getSubjectName(id)}</span>) : <span className="text-gray-400 text-sm">Nothing listed</span>}
                 </div>
             </div>
             <div>
-                <h4 className="font-semibold text-gray-700">Needs Help With:</h4>
+                <h4 className="font-semibold text-onBackground">Needs Help With:</h4>
                 <div className="flex flex-wrap gap-2 mt-1">
-                     {profile.subjectsNeedHelp.length > 0 ? profile.subjectsNeedHelp.map(id => <span key={id} className="bg-yellow-100 text-yellow-800 text-xs font-medium px-2.5 py-0.5 rounded-full">{getSubjectName(id)}</span>) : <span className="text-gray-400 text-sm">Nothing listed</span>}
+                     {profile.subjectsNeedHelp.length > 0 ? profile.subjectsNeedHelp.map(id => <span key={id} className="bg-yellow-500/20 text-yellow-300 text-xs font-medium px-2.5 py-0.5 rounded-full">{getSubjectName(id)}</span>) : <span className="text-gray-400 text-sm">Nothing listed</span>}
                 </div>
             </div>
+             {profile.badges && profile.badges.length > 0 && (
+                <div>
+                    <h4 className="font-semibold text-onBackground text-sm">Badges:</h4>
+                    <div className="flex flex-wrap gap-2 mt-1">
+                        {profile.badges.map(badge => <Badge key={badge} badge={badge} />)}
+                    </div>
+                </div>
+            )}
             <div className="mt-auto pt-4">
                 <button onClick={onConnect} disabled={!!requestStatus} className={getButtonClasses()}>
                    {getButtonContent()}
@@ -245,6 +306,23 @@ const UserCard: React.FC<{
             </div>
         </div>
     );
+};
+
+const sendMessageToBuddy = async (senderId: string, receiverId: string, text: string) => {
+    if (!text.trim() || !senderId || !receiverId) return;
+
+    const conversationId = [senderId, receiverId].sort().join('-');
+    const conversationRef = doc(db, "conversations", conversationId);
+    const messagesColRef = collection(conversationRef, "messages");
+
+    await addDoc(messagesColRef, {
+        senderId: senderId,
+        text: text,
+        timestamp: Date.now(),
+        conversationId,
+    });
+    
+    await setDoc(conversationRef, { participants: [senderId, receiverId]}, { merge: true });
 };
 
 // --- PAGES ---
@@ -309,78 +387,83 @@ const AuthPage: React.FC = () => {
       setSignupStep(1);
     }
 
+    const inputClasses = "appearance-none block w-full px-3 py-2 border border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm bg-gray-700 text-onBackground";
+
     return (
-        <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+        <div className="min-h-screen flex flex-col justify-center py-12 sm:px-6 lg:px-8">
             <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
                 <BookOpenIcon className="mx-auto h-12 w-auto text-primary" />
-                <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
+                <h2 className="mt-6 text-center text-3xl font-extrabold text-onBackground">
                     {isLogin ? 'Sign in to your account' : signupStep === 1 ? 'Create a new account' : `One last step, ${username}!`}
                 </h2>
-                {signupStep === 2 && <p className="mt-2 text-center text-sm text-gray-600">This helps us find your perfect study buddy.</p>}
+                {signupStep === 2 && <p className="mt-2 text-center text-sm text-onSurface">This helps us find your perfect study buddy.</p>}
             </div>
             <div className={`mt-8 sm:mx-auto sm:w-full ${signupStep === 1 ? 'sm:max-w-md' : 'sm:max-w-3xl'}`}>
-                <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
+                <div className="bg-surface py-8 px-4 shadow-2xl shadow-primary/10 sm:rounded-lg sm:px-10 border border-gray-700">
                     <form className="space-y-6" onSubmit={handleSubmit}>
                         {signupStep === 1 ? (
                             <>
                                 {!isLogin && (
                                     <div>
-                                        <label htmlFor="username" className="block text-sm font-medium text-gray-700">Username</label>
-                                        <div className="mt-1"><input id="username" name="username" type="text" required value={username} onChange={e => setUsername(e.target.value)} className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm"/></div>
+                                        <label htmlFor="username" className="block text-sm font-medium text-onSurface">Username</label>
+                                        <div className="mt-1"><input id="username" name="username" type="text" required value={username} onChange={e => setUsername(e.target.value)} className={inputClasses}/></div>
                                     </div>
                                 )}
                                 <div>
-                                    <label htmlFor="email" className="block text-sm font-medium text-gray-700">Email address</label>
-                                    <div className="mt-1"><input id="email" name="email" type="email" autoComplete="email" required value={email} onChange={e => setEmail(e.target.value)} className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm" /></div>
+                                    <label htmlFor="email" className="block text-sm font-medium text-onSurface">Email address</label>
+                                    <div className="mt-1"><input id="email" name="email" type="email" autoComplete="email" required value={email} onChange={e => setEmail(e.target.value)} className={inputClasses} /></div>
                                 </div>
                                 <div>
-                                    <label htmlFor="password"  className="block text-sm font-medium text-gray-700">Password</label>
-                                    <div className="mt-1"><input id="password" name="password" type="password" required value={password} onChange={e => setPassword(e.target.value)} className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm"/></div>
+                                    <label htmlFor="password"  className="block text-sm font-medium text-onSurface">Password</label>
+                                    <div className="mt-1"><input id="password" name="password" type="password" required value={password} onChange={e => setPassword(e.target.value)} className={inputClasses}/></div>
                                 </div>
                                 {!isLogin && (
                                     <div>
-                                        <label htmlFor="confirm-password"  className="block text-sm font-medium text-gray-700">Confirm Password</label>
-                                        <div className="mt-1"><input id="confirm-password" name="confirm-password" type="password" required value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm"/></div>
+                                        <label htmlFor="confirm-password"  className="block text-sm font-medium text-onSurface">Confirm Password</label>
+                                        <div className="mt-1"><input id="confirm-password" name="confirm-password" type="password" required value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className={inputClasses}/></div>
                                     </div>
                                 )}
                             </>
                         ) : (
                             <div className="space-y-8">
                                 <div>
-                                    <h3 className="text-lg font-semibold text-gray-800">Subjects I need help with:</h3>
+                                    <h3 className="text-lg font-semibold text-onBackground">Subjects I need help with:</h3>
                                     <div className="mt-4 grid grid-cols-2 md:grid-cols-3 gap-4">
                                         {ALL_SUBJECTS.map(subject => (
-                                            <label key={`need-${subject.id}`} className="flex items-center space-x-2 p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition has-[:checked]:bg-yellow-100 has-[:checked]:ring-2 has-[:checked]:ring-yellow-400">
-                                                <input type="checkbox" onChange={() => handleSubjectSelect('need', subject.id)} className="form-checkbox h-5 w-5 text-primary rounded focus:ring-primary"/>
+                                             <div key={`need-${subject.id}`} onClick={() => handleSubjectSelect('need', subject.id)}
+                                                className={`flex items-center justify-center text-center space-x-2 p-3 rounded-lg cursor-pointer transition-all duration-200 border-2 ${subjectsNeedHelp.includes(subject.id) ? 'bg-yellow-500/20 border-yellow-400 text-yellow-300 scale-105' : 'bg-gray-700/50 border-gray-600 hover:bg-gray-600/50'}`}>
                                                 <span>{subject.name}</span>
-                                            </label>
+                                            </div>
                                         ))}
                                     </div>
                                 </div>
                                 <div>
-                                    <h3 className="text-lg font-semibold text-gray-800">Subjects I can help with:</h3>
+                                    <h3 className="text-lg font-semibold text-onBackground">Subjects I can help with:</h3>
                                     <div className="mt-4 grid grid-cols-2 md:grid-cols-3 gap-4">
                                         {ALL_SUBJECTS.map(subject => (
-                                            <label key={`can-${subject.id}`} className="flex items-center space-x-2 p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition has-[:checked]:bg-green-100 has-[:checked]:ring-2 has-[:checked]:ring-green-400">
-                                                <input type="checkbox" onChange={() => handleSubjectSelect('can', subject.id)} className="form-checkbox h-5 w-5 text-secondary rounded focus:ring-secondary"/>
+                                             <div key={`can-${subject.id}`} onClick={() => handleSubjectSelect('can', subject.id)}
+                                                className={`flex items-center justify-center text-center space-x-2 p-3 rounded-lg cursor-pointer transition-all duration-200 border-2 ${subjectsCanHelp.includes(subject.id) ? 'bg-green-500/20 border-green-400 text-green-300 scale-105' : 'bg-gray-700/50 border-gray-600 hover:bg-gray-600/50'}`}>
                                                 <span>{subject.name}</span>
-                                            </label>
+                                            </div>
                                         ))}
                                     </div>
                                 </div>
                              </div>
                         )}
-                        {error && <p className="text-sm text-red-600 mt-2 text-center">{error}</p>}
+                        {error && <p className="text-sm text-red-400 mt-2 text-center">{error}</p>}
                         <div>
-                            <button type="submit" disabled={isSubmitting} className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:opacity-50">
+                            <button type="submit" disabled={isSubmitting} className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:opacity-50 transition-all duration-200 transform active:scale-95 hover:shadow-[0_0_15px_rgba(99,102,241,0.5)]">
                                 {isSubmitting ? 'Processing...' : (isLogin ? 'Sign in' : (signupStep === 1 ? 'Continue' : 'Finish & Find Buddies!'))}
                             </button>
                         </div>
                     </form>
                      {signupStep === 1 && (
                          <div className="mt-6">
-                            <div className="relative"><div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-300" /></div><div className="relative flex justify-center text-sm"><span className="px-2 bg-white text-gray-500">Or</span></div></div>
-                            <div className="mt-6"><button onClick={toggleForm} className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">{isLogin ? 'Create an account' : 'Sign in instead'}</button></div>
+                            <div className="relative"><div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-600" /></div><div className="relative flex justify-center text-sm"><span className="px-2 bg-surface text-onSurface">Or</span></div></div>
+                            <div className="mt-6"><button onClick={toggleForm} className="w-full inline-flex justify-center py-2 px-4 border border-gray-600 rounded-md shadow-sm bg-surface text-sm font-medium text-onSurface hover:bg-gray-700 transition-colors">
+                                {isLogin ? 'Create an account' : 'Sign in instead'}
+                                </button>
+                            </div>
                         </div>
                     )}
                 </div>
@@ -390,17 +473,94 @@ const AuthPage: React.FC = () => {
 };
 
 const ProfilePage: React.FC = () => {
-    const { currentUserProfile, updateProfile } = useAuth();
+    const { currentUser, currentUserProfile, updateProfile } = useAuth();
     const [formData, setFormData] = useState<StudentProfile | null>(currentUserProfile);
     const [isSaved, setIsSaved] = useState(false);
+    
+    const [imageFile, setImageFile] = useState<File | null>(null);
+    const [imagePreview, setImagePreview] = useState<string | null>(null);
+    const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+    const [uploadError, setUploadError] = useState<string | null>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [isGeneratingBio, setIsGeneratingBio] = useState(false);
+
 
     useEffect(() => {
         setFormData(currentUserProfile);
     }, [currentUserProfile]);
 
-    if (!formData) {
-        return <div className="container mx-auto p-8"><p>Loading profile...</p></div>
+    if (!formData || !currentUser) {
+        return <div className="container mx-auto p-8 animate-fadeIn"><p>Loading profile...</p></div>
     }
+    
+    const handleGenerateBio = async () => {
+        if (!currentUserProfile || !formData) return;
+        setIsGeneratingBio(true);
+        try {
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+            const subjectsCanHelpStr = formData.subjectsCanHelp.map(getSubjectName).join(', ');
+            const subjectsNeedHelpStr = formData.subjectsNeedHelp.map(getSubjectName).join(', ');
+            const learningStyle = formData.learningStyle;
+
+            const prompt = `Write a friendly and engaging user bio for a study app. The user's details are:
+            - Learning Style: ${learningStyle}
+            - Subjects they can help with: ${subjectsCanHelpStr || 'None'}
+            - Subjects they need help with: ${subjectsNeedHelpStr || 'None'}
+            Keep it concise (2-3 sentences) and encouraging. Write it in the first person.`;
+
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: prompt,
+            });
+
+            setFormData({ ...formData, bio: response.text });
+        } catch (error) {
+            console.error("Bio generation failed:", error);
+        } finally {
+            setIsGeneratingBio(false);
+        }
+    };
+
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files[0]) {
+            const file = e.target.files[0];
+            setImageFile(file);
+            setImagePreview(URL.createObjectURL(file));
+        }
+    };
+
+    const handleImageUpload = async () => {
+        if (!imageFile) return;
+        setUploadProgress(0);
+        setUploadError(null);
+
+        const storageRef = ref(storage, `profile-pictures/${currentUser.uid}`);
+        const uploadTask = uploadBytesResumable(storageRef, imageFile);
+
+        uploadTask.on('state_changed',
+            (snapshot) => {
+                const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+                setUploadProgress(progress);
+            },
+            (error) => {
+                console.error("Upload failed:", error);
+                setUploadError("Upload failed. Please try again.");
+                setUploadProgress(null);
+            },
+            async () => {
+                const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+                const userDocRef = doc(db, "users", currentUser.uid);
+                await updateDoc(userDocRef, { photoURL: downloadURL });
+                setUploadProgress(100);
+                setTimeout(() => {
+                    setUploadProgress(null);
+                    setImageFile(null);
+                    setImagePreview(null);
+                }, 2000);
+            }
+        );
+    };
 
     const handleMultiSelect = (field: 'subjectsNeedHelp' | 'subjectsCanHelp' | 'preferredMethods' | 'availability', value: any) => {
         const currentValues = formData[field] as any[];
@@ -417,81 +577,141 @@ const ProfilePage: React.FC = () => {
         setTimeout(() => setIsSaved(false), 3000);
     };
 
+    const choiceBoxClasses = (isSelected: boolean, color: 'primary' | 'yellow' | 'green') => {
+        const base = "flex items-center justify-center text-center p-3 rounded-lg cursor-pointer transition-all duration-200 border-2";
+        if (isSelected) {
+            const colors = {
+                primary: 'bg-primary/20 border-primary text-indigo-300 scale-105',
+                yellow: 'bg-yellow-500/20 border-yellow-400 text-yellow-300 scale-105',
+                green: 'bg-green-500/20 border-green-400 text-green-300 scale-105',
+            };
+            return `${base} ${colors[color]}`;
+        }
+        return `${base} bg-gray-700/50 border-gray-600 hover:bg-gray-600/50 hover:border-gray-500`;
+    };
+
     return (
-        <div className="container mx-auto p-8">
-            <h1 className="text-3xl font-bold mb-6">Edit Your Profile</h1>
-            <form onSubmit={handleSubmit} className="bg-surface p-8 rounded-lg shadow-lg space-y-8">
-                <div>
-                    <label className="text-lg font-semibold">About Me</label>
-                    <textarea value={formData.bio} onChange={e => setFormData({...formData, bio: e.target.value})} className="mt-2 w-full p-2 border rounded-md" rows={3}></textarea>
-                </div>
-                
-                <div>
-                    <h3 className="text-lg font-semibold">Subjects I Need Help With</h3>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
-                        {ALL_SUBJECTS.map(subject => (
-                            <label key={subject.id} className="flex items-center space-x-2 p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition">
-                                <input type="checkbox" checked={formData.subjectsNeedHelp.includes(subject.id)} onChange={() => handleMultiSelect('subjectsNeedHelp', subject.id)} className="form-checkbox h-5 w-5 text-primary rounded focus:ring-primary"/>
-                                <span>{subject.name}</span>
-                            </label>
-                        ))}
+        <div className="container mx-auto p-8 animate-fadeIn">
+            <h1 className="text-4xl font-bold mb-6 text-onBackground">Edit Your Profile</h1>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div className="lg:col-span-1">
+                    <div className="bg-surface p-6 rounded-lg shadow-lg text-center border border-gray-700">
+                        <h2 className="text-xl font-semibold mb-4 text-onBackground">Profile Picture</h2>
+                        <div className="relative w-40 h-40 mx-auto">
+                            <Avatar user={{...currentUser, photoURL: imagePreview || currentUser.photoURL}} className="w-40 h-40 text-5xl" />
+                        </div>
+                        <input type="file" accept="image/*" onChange={handleFileChange} ref={fileInputRef} className="hidden" />
+                        <button onClick={() => fileInputRef.current?.click()} className="mt-4 w-full px-4 py-2 bg-gray-600 text-onBackground font-semibold rounded-lg hover:bg-gray-500 transition-colors">
+                            Change Picture
+                        </button>
+                        {imageFile && (
+                            <div className="mt-4">
+                                {uploadProgress === null ? (
+                                     <button onClick={handleImageUpload} className="w-full px-4 py-2 bg-secondary text-white font-semibold rounded-lg hover:bg-teal-500 transition-colors">
+                                        Save Picture
+                                    </button>
+                                ) : (
+                                    <div className="w-full bg-gray-700 rounded-full h-2.5">
+                                        <div className="bg-primary h-2.5 rounded-full" style={{ width: `${uploadProgress}%` }}></div>
+                                    </div>
+                                )}
+                                {uploadError && <p className="text-danger text-sm mt-2">{uploadError}</p>}
+                                {uploadProgress === 100 && <p className="text-green-400 text-sm mt-2">Upload complete!</p>}
+                            </div>
+                        )}
+                         {formData.badges && formData.badges.length > 0 && (
+                            <div className="mt-6 text-left">
+                                <h3 className="text-lg font-semibold mb-2 text-center text-onBackground">My Achievements</h3>
+                                <div className="flex flex-wrap justify-center gap-2">
+                                    {formData.badges.map(badge => (
+                                        <div key={badge} className="flex items-center gap-2 p-2 bg-amber-500/20 text-amber-300 rounded-lg border border-amber-500/50">
+                                            <TrophyIcon className="w-5 h-5" />
+                                            <span className="font-semibold">{badge}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
+                <div className="lg:col-span-2">
+                    <form onSubmit={handleSubmit} className="bg-surface p-8 rounded-lg shadow-lg space-y-8 border border-gray-700">
+                        <div>
+                            <label className="text-lg font-semibold flex justify-between items-center text-onBackground">
+                                <span>About Me</span>
+                                <button type="button" onClick={handleGenerateBio} disabled={isGeneratingBio} className="flex items-center gap-1 text-sm text-primary font-semibold hover:text-indigo-400 disabled:opacity-50">
+                                    <SparklesIcon className="w-4 h-4" />
+                                    {isGeneratingBio ? 'Generating...' : 'Generate with AI'}
+                                </button>
+                            </label>
 
-                <div>
-                    <h3 className="text-lg font-semibold">Subjects I Can Help With</h3>
-                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
-                        {ALL_SUBJECTS.map(subject => (
-                            <label key={subject.id} className="flex items-center space-x-2 p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition">
-                                <input type="checkbox" checked={formData.subjectsCanHelp.includes(subject.id)} onChange={() => handleMultiSelect('subjectsCanHelp', subject.id)} className="form-checkbox h-5 w-5 text-secondary rounded focus:ring-secondary"/>
-                                <span>{subject.name}</span>
-                            </label>
-                        ))}
-                    </div>
-                </div>
+                            <textarea value={formData.bio} onChange={e => setFormData({...formData, bio: e.target.value})} className="mt-2 w-full p-2 border border-gray-600 rounded-md focus:ring-2 focus:ring-primary bg-gray-700 text-onBackground" rows={3}></textarea>
+                        </div>
+                        
+                        <div>
+                            <h3 className="text-lg font-semibold text-onBackground">Subjects I Need Help With</h3>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-2">
+                                {ALL_SUBJECTS.map(subject => (
+                                    <div key={subject.id} onClick={() => handleMultiSelect('subjectsNeedHelp', subject.id)} className={choiceBoxClasses(formData.subjectsNeedHelp.includes(subject.id), 'yellow')}>
+                                        <span>{subject.name}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
 
-                <div>
-                    <h3 className="text-lg font-semibold">My Availability</h3>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
-                        {ALL_AVAILABILITY_OPTIONS.map(opt => (
-                            <label key={opt} className="flex items-center space-x-2 p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition">
-                                <input type="checkbox" checked={formData.availability.includes(opt)} onChange={() => handleMultiSelect('availability', opt)} className="form-checkbox h-5 w-5 text-primary rounded focus:ring-primary"/>
-                                <span>{opt}</span>
-                            </label>
-                        ))}
-                    </div>
-                </div>
-                
-                <div>
-                    <h3 className="text-lg font-semibold">Preferred Study Methods</h3>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
-                        {ALL_STUDY_METHODS.map(method => (
-                            <label key={method} className="flex items-center space-x-2 p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition">
-                                <input type="checkbox" checked={formData.preferredMethods.includes(method)} onChange={() => handleMultiSelect('preferredMethods', method)} className="form-checkbox h-5 w-5 text-primary rounded focus:ring-primary"/>
-                                <span>{method}</span>
-                            </label>
-                        ))}
-                    </div>
-                </div>
+                        <div>
+                            <h3 className="text-lg font-semibold text-onBackground">Subjects I Can Help With</h3>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-2">
+                                {ALL_SUBJECTS.map(subject => (
+                                    <div key={subject.id} onClick={() => handleMultiSelect('subjectsCanHelp', subject.id)} className={choiceBoxClasses(formData.subjectsCanHelp.includes(subject.id), 'green')}>
+                                        <span>{subject.name}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
 
-                <div>
-                    <h3 className="text-lg font-semibold">Learning Style</h3>
-                    <div className="flex flex-col md:flex-row gap-4 mt-2">
-                        {ALL_LEARNING_STYLES.map(({style, description}) => (
-                            <label key={style} className={`flex-1 p-4 border-2 rounded-lg cursor-pointer transition ${formData.learningStyle === style ? 'border-primary bg-indigo-50' : 'border-gray-200'}`}>
-                                <input type="radio" name="learningStyle" value={style} checked={formData.learningStyle === style} onChange={e => setFormData({...formData, learningStyle: e.target.value as LearningStyle})} className="sr-only"/>
-                                <span className="font-bold block">{style}</span>
-                                <span className="text-sm text-gray-500">{description}</span>
-                            </label>
-                        ))}
-                    </div>
-                </div>
+                        <div>
+                            <h3 className="text-lg font-semibold text-onBackground">My Availability</h3>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-2">
+                                {ALL_AVAILABILITY_OPTIONS.map(opt => (
+                                    <div key={opt} onClick={() => handleMultiSelect('availability', opt)} className={choiceBoxClasses(formData.availability.includes(opt), 'primary')}>
+                                        <span>{opt}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <h3 className="text-lg font-semibold text-onBackground">Preferred Study Methods</h3>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-2">
+                                {ALL_STUDY_METHODS.map(method => (
+                                    <div key={method} onClick={() => handleMultiSelect('preferredMethods', method)} className={choiceBoxClasses(formData.preferredMethods.includes(method), 'primary')}>
+                                        <span>{method}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
 
-                <div className="flex items-center gap-4">
-                    <button type="submit" className="px-6 py-3 bg-primary text-white font-semibold rounded-lg hover:bg-indigo-700 transition">Save Profile</button>
-                    {isSaved && <div className="flex items-center gap-2 text-green-600"><CheckCircleIcon /><span>Profile saved!</span></div>}
+                        <div>
+                            <h3 className="text-lg font-semibold text-onBackground">Learning Style</h3>
+                            <div className="flex flex-col md:flex-row gap-4 mt-2">
+                                {ALL_LEARNING_STYLES.map(({style, description}) => (
+                                    <label key={style} className={`flex-1 p-4 border-2 rounded-lg cursor-pointer transition-all duration-200 ${formData.learningStyle === style ? 'border-primary bg-primary/20 scale-105' : 'border-gray-600 bg-gray-700/50 hover:border-gray-500'}`}>
+                                        <input type="radio" name="learningStyle" value={style} checked={formData.learningStyle === style} onChange={e => setFormData({...formData, learningStyle: e.target.value as LearningStyle})} className="sr-only"/>
+                                        <span className="font-bold block text-onBackground">{style}</span>
+                                        <span className="text-sm text-onSurface">{description}</span>
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-4">
+                            <button type="submit" className="px-6 py-3 bg-primary text-white font-semibold rounded-lg hover:bg-indigo-500 transition-all duration-200 transform hover:scale-105 active:scale-95 hover:shadow-[0_0_15px_rgba(99,102,241,0.5)]">Save Profile</button>
+                            {isSaved && <div className="flex items-center gap-2 text-green-400 animate-fadeIn"><CheckCircleIcon /><span>Profile saved!</span></div>}
+                        </div>
+                    </form>
                 </div>
-            </form>
+            </div>
         </div>
     );
 };
@@ -502,6 +722,11 @@ const DiscoverPage: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [sentRequests, setSentRequests] = useState<StudyRequest[]>([]);
     const connections = useMemo(() => currentUser?.connections || [], [currentUser]);
+    const [activeTab, setActiveTab] = useState('buddies');
+    const [groups, setGroups] = useState<StudyGroup[]>([]);
+    const [loadingGroups, setLoadingGroups] = useState(true);
+    const [isCreateModalOpen, setCreateModalOpen] = useState(false);
+
 
     useEffect(() => {
         if (!currentUser) return;
@@ -526,7 +751,19 @@ const DiscoverPage: React.FC = () => {
             setLoading(false);
         };
         
+        const fetchGroups = async () => {
+            setLoadingGroups(true);
+            const groupsQuery = query(collection(db, "studyGroups"));
+            const unsubscribe = onSnapshot(groupsQuery, (snapshot) => {
+                const groupsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as StudyGroup));
+                setGroups(groupsData);
+                setLoadingGroups(false);
+            });
+            return unsubscribe;
+        };
+
         fetchUsers();
+        const groupUnsubscribe = fetchGroups();
 
         const requestsQuery = query(collection(db, "studyRequests"), where("fromUserId", "==", currentUser.uid));
         const unsubscribe = onSnapshot(requestsQuery, (snapshot) => {
@@ -534,7 +771,10 @@ const DiscoverPage: React.FC = () => {
             setSentRequests(requests);
         });
 
-        return () => unsubscribe();
+        return () => {
+            unsubscribe();
+            // groupUnsubscribe(); // onSnapshot returns the unsub function
+        };
     }, [currentUser]);
     
     const getRequestStatus = (targetUserId: string) => {
@@ -561,15 +801,35 @@ const DiscoverPage: React.FC = () => {
             alert("Failed to send request.");
         }
     };
+    
+    const handleJoinGroup = async (group: StudyGroup) => {
+        if (!currentUser) return;
+        const groupRef = doc(db, "studyGroups", group.id);
+        await updateDoc(groupRef, {
+            memberIds: arrayUnion(currentUser.uid)
+        });
+    };
 
-    if (loading) {
-        return <div className="container mx-auto p-8"><p>Finding potential buddies...</p></div>
+    const handleCreateGroup = async (name: string, description: string, subjectId: number) => {
+        if(!currentUser) return;
+        const subject = ALL_SUBJECTS.find(s => s.id === subjectId);
+        if(!subject) return;
+
+        await addDoc(collection(db, "studyGroups"), {
+            name,
+            description,
+            subjectId,
+            subjectName: subject.name,
+            creatorId: currentUser.uid,
+            memberIds: [currentUser.uid],
+        });
+        setCreateModalOpen(false);
     }
-
+    
     if (!currentUserProfile || (currentUserProfile.subjectsCanHelp.length === 0 && currentUserProfile.subjectsNeedHelp.length === 0)) {
-        return <div className="container mx-auto p-8 text-center">
-            <p className="text-lg text-gray-700">Please complete your profile first to discover other students.</p>
-            <Link to="/profile" className="mt-4 inline-block bg-primary text-white font-bold py-2 px-4 rounded-lg hover:bg-indigo-700 transition">Go to Profile</Link>
+        return <div className="container mx-auto p-8 text-center animate-fadeIn">
+            <p className="text-lg text-onSurface">Please complete your profile first to discover other students.</p>
+            <Link to="/profile" className="mt-4 inline-block bg-primary text-white font-bold py-2 px-4 rounded-lg hover:bg-indigo-500 transition">Go to Profile</Link>
         </div>;
     }
 
@@ -597,32 +857,144 @@ const DiscoverPage: React.FC = () => {
         }))
         .filter(m => m.score > 0)
         .sort((a, b) => b.score - a.score);
+
+    const GroupCard: React.FC<{group: StudyGroup}> = ({ group }) => (
+        <div className="bg-surface rounded-xl shadow-lg p-6 flex flex-col gap-4 transition-all duration-300 hover:shadow-2xl hover:-translate-y-1 hover:shadow-secondary/20 border border-transparent hover:border-secondary/50">
+            <div>
+                <h3 className="text-xl font-bold text-secondary">{group.name}</h3>
+                <span className="bg-teal-500/20 text-teal-300 text-sm font-medium px-2.5 py-0.5 rounded-full">{group.subjectName}</span>
+            </div>
+            <p className="text-onSurface flex-grow">{group.description}</p>
+            <div className="flex items-center text-sm text-gray-400">
+                <UsersIcon className="w-4 h-4 mr-2"/>
+                {group.memberIds.length} member(s)
+            </div>
+            <div className="mt-auto pt-4">
+                {group.memberIds.includes(currentUser!.uid) ? (
+                     <button disabled className="w-full font-bold py-3 px-4 rounded-lg bg-green-500 text-white cursor-default flex items-center justify-center gap-2">
+                        <CheckCircleIcon className="w-5 h-5"/> Joined
+                     </button>
+                ) : (
+                    <button onClick={() => handleJoinGroup(group)} className="w-full font-bold py-3 px-4 rounded-lg bg-secondary text-onSecondary hover:bg-teal-500 transition-all duration-300 flex items-center justify-center gap-2 transform hover:scale-105 active:scale-95 hover:shadow-[0_0_15px_rgba(20,184,166,0.5)]">
+                        <PlusCircleIcon className="w-5 h-5"/> Join Group
+                    </button>
+                )}
+            </div>
+        </div>
+    );
+    
+    const CreateGroupModal: React.FC<{isOpen: boolean, onClose: () => void, onCreate: (name: string, description: string, subjectId: number) => void}> = ({isOpen, onClose, onCreate}) => {
+        const [name, setName] = useState('');
+        const [description, setDescription] = useState('');
+        const [subjectId, setSubjectId] = useState<number | null>(null);
+
+        if(!isOpen) return null;
+
+        const handleSubmit = (e: React.FormEvent) => {
+            e.preventDefault();
+            if(name && description && subjectId) {
+                onCreate(name, description, subjectId);
+            }
+        };
+
+        const inputClasses = "w-full p-2 border border-gray-600 rounded-md bg-gray-700 text-onBackground focus:ring-primary focus:border-primary";
+
+        return (
+            <div className="fixed inset-0 bg-black bg-opacity-70 z-50 flex justify-center items-center" onClick={onClose}>
+                <div className="bg-surface rounded-lg p-8 shadow-2xl w-full max-w-lg border border-gray-700" onClick={e => e.stopPropagation()}>
+                    <h2 className="text-2xl font-bold mb-4 text-onBackground">Create a New Study Group</h2>
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        <div>
+                            <label className="block font-semibold text-onSurface">Group Name</label>
+                            <input type="text" value={name} onChange={e => setName(e.target.value)} required className={inputClasses} />
+                        </div>
+                         <div>
+                            <label className="block font-semibold text-onSurface">Description</label>
+                            <textarea value={description} onChange={e => setDescription(e.target.value)} required className={inputClasses} rows={3}></textarea>
+                        </div>
+                        <div>
+                            <label className="block font-semibold text-onSurface">Subject</label>
+                            <select onChange={e => setSubjectId(Number(e.target.value))} required className={inputClasses} defaultValue="">
+                                <option value="" disabled>Select a subject</option>
+                                {ALL_SUBJECTS.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                            </select>
+                        </div>
+                        <div className="flex justify-end gap-4 mt-6">
+                            <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-600 text-onBackground rounded-md hover:bg-gray-500 transition">Cancel</button>
+                            <button type="submit" className="px-4 py-2 bg-primary text-white rounded-md hover:bg-indigo-500 transition">Create</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        )
+    };
     
     return (
-        <div className="container mx-auto p-8">
-             <h1 className="text-3xl font-bold mb-6">Find a Study Buddy</h1>
-             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                {potentialMatches.map(({ user, profile }) => (
-                    <UserCard 
-                        key={user.uid} 
-                        user={user} 
-                        profile={profile} 
-                        onConnect={() => handleConnect(user)}
-                        requestStatus={getRequestStatus(user.uid)}
-                    />
-                ))}
+        <div className="container mx-auto p-8 animate-fadeIn">
+             <CreateGroupModal isOpen={isCreateModalOpen} onClose={() => setCreateModalOpen(false)} onCreate={handleCreateGroup} />
+             <div className="flex justify-between items-center mb-6">
+                 <h1 className="text-4xl font-bold">Discover</h1>
+                 {activeTab === 'groups' && (
+                     <button onClick={() => setCreateModalOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-primary text-white font-semibold rounded-lg hover:bg-indigo-500 transition-colors hover:shadow-[0_0_15px_rgba(99,102,241,0.5)]">
+                        <PlusCircleIcon className="w-5 h-5" />
+                        Create Group
+                     </button>
+                 )}
              </div>
-             {potentialMatches.length === 0 && <p className="text-center text-gray-500 col-span-full">No matches found. Try broadening your profile criteria!</p>}
+
+             <div className="flex border-b border-gray-700 mb-6">
+                <button onClick={() => setActiveTab('buddies')} className={`px-4 py-2 font-semibold transition-colors ${activeTab === 'buddies' ? 'border-b-2 border-primary text-primary' : 'text-onSurface'}`}>Buddies</button>
+                <button onClick={() => setActiveTab('groups')} className={`px-4 py-2 font-semibold transition-colors ${activeTab === 'groups' ? 'border-b-2 border-primary text-primary' : 'text-onSurface'}`}>Groups</button>
+             </div>
+
+             {activeTab === 'buddies' ? (
+                loading ? <p>Finding potential buddies...</p> :
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                    {potentialMatches.map(({ user, profile }, index) => (
+                        <UserCard 
+                            key={user.uid} 
+                            user={user} 
+                            profile={profile} 
+                            onConnect={() => handleConnect(user)}
+                            requestStatus={getRequestStatus(user.uid)}
+                            style={{ animationDelay: `${index * 100}ms`, opacity: 0 }}
+                            className="animate-fadeIn"
+                        />
+                    ))}
+                    {potentialMatches.length === 0 && <p className="text-center text-onSurface col-span-full">No matches found. Try broadening your profile criteria!</p>}
+                </div>
+             ) : (
+                loadingGroups ? <p>Loading groups...</p> :
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                   {groups.map(group => <GroupCard key={group.id} group={group} />)}
+                   {groups.length === 0 && <p className="text-center text-onSurface col-span-full">No groups found. Why not create one?</p>}
+                </div>
+             )}
         </div>
     );
 };
 
 const HomePage: React.FC = () => {
-    const { currentUser } = useAuth();
+    const { currentUser, currentUserProfile } = useAuth();
     const [incomingRequests, setIncomingRequests] = useState<StudyRequest[]>([]);
     const [loadingRequests, setLoadingRequests] = useState(true);
     const [buddies, setBuddies] = useState<User[]>([]);
     const [loadingBuddies, setLoadingBuddies] = useState(true);
+    const [myGroups, setMyGroups] = useState<StudyGroup[]>([]);
+    const [loadingGroups, setLoadingGroups] = useState(true);
+
+
+    const [selectedSubjectId, setSelectedSubjectId] = useState<number | null>(null);
+    const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
+    const [studyPlan, setStudyPlan] = useState<string | null>(null);
+    const [selectedBuddyToSend, setSelectedBuddyToSend] = useState<string>('');
+    const [sendSuccessMessage, setSendSuccessMessage] = useState('');
+
+    const userSubjects = useMemo(() => {
+        if (!currentUserProfile) return [];
+        const subjectIds = [...new Set([...currentUserProfile.subjectsNeedHelp, ...currentUserProfile.subjectsCanHelp])];
+        return ALL_SUBJECTS.filter(s => subjectIds.includes(s.id));
+    }, [currentUserProfile]);
 
     useEffect(() => {
         if (!currentUser) return;
@@ -637,9 +1009,17 @@ const HomePage: React.FC = () => {
             setIncomingRequests(requests);
             setLoadingRequests(false);
         });
+
+        const groupsQuery = query(collection(db, "studyGroups"), where("memberIds", "array-contains", currentUser.uid));
+        const unsubscribeGroups = onSnapshot(groupsQuery, (snapshot) => {
+            const groups = snapshot.docs.map(doc => ({id: doc.id, ...doc.data() } as StudyGroup));
+            setMyGroups(groups);
+            setLoadingGroups(false);
+        });
         
         return () => {
             unsubscribeRequests();
+            unsubscribeGroups();
         };
     }, [currentUser]);
     
@@ -660,6 +1040,9 @@ const HomePage: React.FC = () => {
                         .filter(doc => doc.exists())
                         .map(doc => ({uid: doc.id, ...doc.data()}) as User);
                     setBuddies(buddyData);
+                    if(buddyData.length > 0) {
+                        setSelectedBuddyToSend(buddyData[0].uid);
+                    }
                  } catch (error) {
                     console.error("Error fetching buddies: ", error);
                     setBuddies([]);
@@ -672,7 +1055,6 @@ const HomePage: React.FC = () => {
 
         fetchBuddies();
     }, [currentUser?.connections]);
-
 
     const handleRequestResponse = async (request: StudyRequest, newStatus: 'accepted' | 'declined') => {
         if (!currentUser) return;
@@ -693,49 +1075,138 @@ const HomePage: React.FC = () => {
         }
     };
 
+    const handleGeneratePlan = async () => {
+        if (!selectedSubjectId) return;
+        setIsGeneratingPlan(true);
+        setStudyPlan(null);
+        try {
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+            const subjectName = getSubjectName(selectedSubjectId);
+            const prompt = `Create a concise, one-week study plan for the subject "${subjectName}". Break it down into daily tasks. The plan should be encouraging and easy to follow. Use markdown for formatting with headings for each day.`;
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: prompt,
+            });
+            setStudyPlan(response.text);
+        } catch (error) {
+            console.error("Error generating study plan:", error);
+            setStudyPlan("Sorry, I couldn't generate a plan right now. Please try again later.");
+        } finally {
+            setIsGeneratingPlan(false);
+        }
+    };
+    
+    const handleSendPlan = async () => {
+        if (!studyPlan || !selectedBuddyToSend || !currentUser) return;
+        
+        const subjectName = getSubjectName(selectedSubjectId!);
+        const planToSend = `Hey! Here's a study plan I generated for ${subjectName}:\n\n${studyPlan}`;
+
+        await sendMessageToBuddy(currentUser.uid, selectedBuddyToSend, planToSend);
+        setSendSuccessMessage(`Plan sent to ${buddies.find(b => b.uid === selectedBuddyToSend)?.username}!`);
+        setTimeout(() => setSendSuccessMessage(''), 3000);
+    };
+    
+    const inputClasses = "w-full sm:w-auto flex-grow p-2 border border-gray-600 rounded-md focus:ring-primary focus:border-primary bg-surface text-onBackground";
+
     return (
-        <div className="container mx-auto p-8">
-             <h1 className="text-4xl font-bold text-gray-800">Welcome back, {currentUser?.username}!</h1>
-             <p className="mt-2 text-lg text-gray-600">Here's your study dashboard.</p>
-             <div className="mt-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                <div className="bg-surface p-6 rounded-lg shadow-md lg:col-span-2">
-                    <h2 className="text-xl font-semibold flex items-center gap-2"><UsersIcon/> My Buddies</h2>
-                     {loadingBuddies ? (
-                         <p className="mt-4 text-gray-500">Loading buddies...</p>
-                     ) : buddies.length > 0 ? (
+        <div className="container mx-auto p-8 animate-fadeIn">
+             <h1 className="text-4xl font-bold text-onBackground">Dashboard</h1>
+             <p className="mt-2 text-lg text-onSurface">Here's your study overview.</p>
+             <div className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="bg-surface/50 border border-gray-700 p-6 rounded-lg shadow-lg lg:col-span-2">
+                     <h2 className="text-xl font-semibold flex items-center gap-2 text-onBackground"><UsersIcon/> My Buddies</h2>
+                     {loadingBuddies ? ( <p className="mt-4 text-onSurface">Loading buddies...</p> ) : 
+                     buddies.length > 0 ? (
                         <ul className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
                             {buddies.map(buddy => (
-                                <li key={buddy.uid} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                                <li key={buddy.uid} className="flex items-center justify-between p-3 bg-background rounded-lg transition hover:bg-gray-800 border border-gray-700">
                                     <div className="flex items-center gap-3">
-                                        <img src={`https://i.pravatar.cc/40?u=${buddy.uid}`} alt={buddy.username} className="w-10 h-10 rounded-full" />
-                                        <span className="font-semibold text-gray-800">{buddy.username}</span>
+                                        <Avatar user={buddy} className="w-10 h-10"/>
+                                        <span className="font-semibold text-onBackground">{buddy.username}</span>
                                     </div>
-                                    <Link to="/messages" state={{ selectedBuddyId: buddy.uid }} className="text-sm text-primary hover:underline">Message</Link>
+                                    <Link to="/messages" state={{ selectedBuddyId: buddy.uid }} className="text-sm text-primary hover:underline font-semibold">Message</Link>
                                 </li>
                             ))}
                         </ul>
-                    ) : (
-                        <p className="mt-4 text-gray-500">No active buddies yet. <Link to="/discover" className="text-primary hover:underline">Find a partner</Link> to get started!</p>
-                    )}
+                    ) : ( <p className="mt-4 text-onSurface">No active buddies yet. <Link to="/discover" className="text-primary hover:underline">Find a partner</Link> to get started!</p> )}
                 </div>
-                 <div className="bg-surface p-6 rounded-lg shadow-md">
-                    <h2 className="text-xl font-semibold flex items-center gap-2"><ChatBubbleIcon/> Pending Requests</h2>
-                    {loadingRequests ? (
-                        <p className="mt-4 text-gray-500">Loading requests...</p>
-                    ) : incomingRequests.length > 0 ? (
+                <div className="bg-surface/50 border border-gray-700 p-6 rounded-lg shadow-lg">
+                    <h2 className="text-xl font-semibold flex items-center gap-2 text-onBackground"><ChatBubbleIcon/> Pending Requests</h2>
+                    {loadingRequests ? ( <p className="mt-4 text-onSurface">Loading requests...</p> ) : 
+                    incomingRequests.length > 0 ? (
                         <ul className="mt-4 space-y-3">
                             {incomingRequests.map(req => (
-                                <li key={req.id} className="flex items-center justify-between p-2 bg-gray-50 rounded-md">
-                                    <span className="text-gray-700">Request from <span className="font-bold">{req.fromUsername}</span></span>
+                                <li key={req.id} className="flex items-center justify-between p-2 bg-background rounded-md border border-gray-700">
+                                    <span className="text-onSurface">Request from <span className="font-bold text-onBackground">{req.fromUsername}</span></span>
                                     <div className="flex gap-2">
-                                        <button onClick={() => handleRequestResponse(req, 'accepted')} className="p-1 text-green-600 hover:bg-green-100 rounded-full" title="Accept"><CheckCircleIcon className="w-6 h-6" /></button>
-                                        <button onClick={() => handleRequestResponse(req, 'declined')} className="p-1 text-red-600 hover:bg-red-100 rounded-full" title="Decline"><XCircleIcon className="w-6 h-6" /></button>
+                                        <button onClick={() => handleRequestResponse(req, 'accepted')} className="p-1 text-green-400 hover:bg-green-500/20 rounded-full transition-colors transform hover:scale-125" title="Accept"><CheckCircleIcon className="w-6 h-6" /></button>
+                                        <button onClick={() => handleRequestResponse(req, 'declined')} className="p-1 text-red-400 hover:bg-red-500/20 rounded-full transition-colors transform hover:scale-125" title="Decline"><XCircleIcon className="w-6 h-6" /></button>
                                     </div>
                                 </li>
                             ))}
                         </ul>
+                    ) : ( <p className="mt-4 text-onSurface">You have no pending study requests.</p> )}
+                </div>
+
+                <div className="bg-surface/50 border border-gray-700 p-6 rounded-lg shadow-lg lg:col-span-3">
+                    <h2 className="text-xl font-semibold flex items-center gap-2 text-onBackground"><UsersIcon /> My Groups</h2>
+                    {loadingGroups ? <p className="mt-4 text-onSurface">Loading groups...</p> : 
+                    myGroups.length > 0 ? (
+                        <ul className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {myGroups.map(group => (
+                                <Link to={`/group/${group.id}`} key={group.id} className="block p-4 bg-background rounded-lg transition hover:bg-gray-800 hover:shadow-md border border-gray-700 hover:border-primary/50">
+                                    <h3 className="font-bold text-primary">{group.name}</h3>
+                                    <p className="text-sm text-onSurface">{group.subjectName}</p>
+                                    <p className="text-xs text-gray-400 mt-2">{group.memberIds.length} members</p>
+                                </Link>
+                            ))}
+                        </ul>
                     ) : (
-                        <p className="mt-4 text-gray-500">You have no pending study requests.</p>
+                        <p className="mt-4 text-onSurface">You haven't joined any groups yet. <Link to="/discover" className="text-primary hover:underline">Find a group</Link> to collaborate!</p>
+                    )}
+                </div>
+
+                <div className="bg-surface/50 border border-gray-700 p-6 rounded-lg shadow-lg lg:col-span-3">
+                    <h2 className="text-xl font-semibold flex items-center gap-2 text-primary"><SparklesIcon /> AI Study Planner</h2>
+                    <div className="mt-4 flex flex-col sm:flex-row items-center gap-4">
+                        <select
+                            onChange={(e) => setSelectedSubjectId(Number(e.target.value))}
+                            className={inputClasses}
+                            defaultValue=""
+                        >
+                            <option value="" disabled>Select a subject...</option>
+                            {userSubjects.map(subject => (
+                                <option key={subject.id} value={subject.id}>{subject.name}</option>
+                            ))}
+                        </select>
+                        <button onClick={handleGeneratePlan} disabled={!selectedSubjectId || isGeneratingPlan} className="w-full sm:w-auto px-6 py-2 bg-primary text-white font-semibold rounded-lg hover:bg-indigo-500 transition transform active:scale-95 disabled:bg-gray-600 disabled:cursor-not-allowed hover:shadow-[0_0_15px_rgba(99,102,241,0.5)]">
+                            {isGeneratingPlan ? 'Generating...' : 'Generate Plan'}
+                        </button>
+                    </div>
+
+                    {isGeneratingPlan && <div className="mt-4 text-center text-onSurface">Generating your study plan...</div>}
+
+                    {studyPlan && (
+                        <div className="mt-6 p-4 bg-indigo-500/10 rounded-lg animate-fadeIn border border-indigo-500/30">
+                            <h3 className="text-lg font-bold mb-2 text-onBackground">Your {getSubjectName(selectedSubjectId!)} Study Plan:</h3>
+                            <p className="whitespace-pre-wrap text-onSurface prose prose-invert">{studyPlan}</p>
+                            
+                            {buddies.length > 0 && (
+                                <div className="mt-6 pt-4 border-t border-indigo-500/30">
+                                    <h4 className="font-semibold text-onBackground">Share with a buddy:</h4>
+                                    <div className="mt-2 flex flex-col sm:flex-row items-center gap-4">
+                                        <select onChange={(e) => setSelectedBuddyToSend(e.target.value)} value={selectedBuddyToSend} className={inputClasses}>
+                                            {buddies.map(buddy => <option key={buddy.uid} value={buddy.uid}>{buddy.username}</option>)}
+                                        </select>
+                                        <button onClick={handleSendPlan} className="w-full sm:w-auto px-6 py-2 bg-secondary text-white font-semibold rounded-lg hover:bg-teal-500 transition transform active:scale-95 hover:shadow-[0_0_15px_rgba(20,184,166,0.5)]">
+                                            Send to Buddy
+                                        </button>
+                                    </div>
+                                    {sendSuccessMessage && <p className="mt-2 text-sm text-green-400 animate-fadeIn">{sendSuccessMessage}</p>}
+                                </div>
+                            )}
+                        </div>
                     )}
                 </div>
              </div>
@@ -816,42 +1287,29 @@ const MessagesPage: React.FC = () => {
     const handleSendMessage = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!newMessage.trim() || !currentUser || !selectedBuddy) return;
-
-        const conversationId = [currentUser.uid, selectedBuddy.uid].sort().join('-');
-        const conversationRef = doc(db, "conversations", conversationId);
-        const messagesColRef = collection(conversationRef, "messages");
-
-        await addDoc(messagesColRef, {
-            senderId: currentUser.uid,
-            text: newMessage,
-            timestamp: Date.now(),
-            conversationId,
-        });
-        
-        await setDoc(conversationRef, { participants: [currentUser.uid, selectedBuddy.uid]}, { merge: true });
-
+        await sendMessageToBuddy(currentUser.uid, selectedBuddy.uid, newMessage);
         setNewMessage('');
     };
     
     return (
-        <div className="container mx-auto p-4 md:p-8">
+        <div className="container mx-auto p-4 md:p-8 animate-fadeIn">
             <h1 className="text-3xl font-bold mb-6">Messages</h1>
-            <div className="flex flex-col md:flex-row bg-surface shadow-lg rounded-lg h-[75vh]">
+            <div className="flex flex-col md:flex-row bg-surface shadow-lg rounded-lg h-[75vh] border border-gray-700">
                 {/* Buddies List */}
-                <div className="w-full md:w-1/3 border-r border-gray-200 flex flex-col">
-                    <div className="p-4 border-b border-gray-200">
-                        <h2 className="text-xl font-semibold">Contacts</h2>
+                <div className="w-full md:w-1/3 border-r border-gray-700 flex flex-col">
+                    <div className="p-4 border-b border-gray-700">
+                        <h2 className="text-xl font-semibold text-onBackground">Contacts</h2>
                     </div>
                     <ul className="overflow-y-auto">
                         {buddies.map(buddy => (
-                            <li key={buddy.uid} onClick={() => setSelectedBuddy(buddy)} className={`p-4 flex items-center gap-3 cursor-pointer hover:bg-gray-100 ${selectedBuddy?.uid === buddy.uid ? 'bg-indigo-50' : ''}`}>
-                                <img src={`https://i.pravatar.cc/48?u=${buddy.uid}`} alt={buddy.username} className="w-12 h-12 rounded-full" />
+                            <li key={buddy.uid} onClick={() => setSelectedBuddy(buddy)} className={`p-4 flex items-center gap-3 cursor-pointer transition-colors duration-200 hover:bg-gray-800 ${selectedBuddy?.uid === buddy.uid ? 'bg-primary/20' : ''}`}>
+                                <Avatar user={buddy} className="w-12 h-12" />
                                 <div>
-                                    <p className="font-semibold">{buddy.username}</p>
+                                    <p className="font-semibold text-onBackground">{buddy.username}</p>
                                 </div>
                             </li>
                         ))}
-                         {buddies.length === 0 && <p className="p-4 text-gray-500">No buddies yet.</p>}
+                         {buddies.length === 0 && <p className="p-4 text-onSurface">No buddies yet.</p>}
                     </ul>
                 </div>
 
@@ -859,27 +1317,27 @@ const MessagesPage: React.FC = () => {
                 <div className="w-full md:w-2/3 flex flex-col">
                     {selectedBuddy ? (
                         <>
-                            <div className="p-4 border-b border-gray-200 flex items-center gap-3">
-                                 <img src={`https://i.pravatar.cc/40?u=${selectedBuddy.uid}`} alt={selectedBuddy.username} className="w-10 h-10 rounded-full" />
-                                <h2 className="text-xl font-semibold">{selectedBuddy.username}</h2>
+                            <div className="p-4 border-b border-gray-700 flex items-center gap-3">
+                                 <Avatar user={selectedBuddy} className="w-10 h-10" />
+                                <h2 className="text-xl font-semibold text-onBackground">{selectedBuddy.username}</h2>
                             </div>
-                            <div className="flex-1 p-4 overflow-y-auto bg-gray-50">
+                            <div className="flex-1 p-4 overflow-y-auto bg-background">
                                 {messages.map(msg => (
                                     <div key={msg.id} className={`flex mb-4 ${msg.senderId === currentUser?.uid ? 'justify-end' : 'justify-start'}`}>
-                                        <div className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${msg.senderId === currentUser?.uid ? 'bg-primary text-white' : 'bg-gray-200 text-gray-800'}`}>
-                                            <p>{msg.text}</p>
+                                        <div className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg shadow-sm ${msg.senderId === currentUser?.uid ? 'bg-primary text-white' : 'bg-gray-700 text-onBackground'}`}>
+                                            <p className="whitespace-pre-wrap">{msg.text}</p>
                                         </div>
                                     </div>
                                 ))}
                                 <div ref={messagesEndRef} />
                             </div>
-                            <form onSubmit={handleSendMessage} className="p-4 border-t border-gray-200 flex gap-2">
-                                <input type="text" value={newMessage} onChange={e => setNewMessage(e.target.value)} placeholder="Type a message..." className="flex-1 p-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"/>
-                                <button type="submit" className="px-4 py-2 bg-primary text-white font-semibold rounded-lg hover:bg-indigo-700 transition">Send</button>
+                            <form onSubmit={handleSendMessage} className="p-4 border-t border-gray-700 flex gap-2 bg-surface">
+                                <input type="text" value={newMessage} onChange={e => setNewMessage(e.target.value)} placeholder="Type a message..." className="flex-1 p-2 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary bg-gray-700 text-onBackground"/>
+                                <button type="submit" className="px-4 py-2 bg-primary text-white font-semibold rounded-lg hover:bg-indigo-500 transition transform active:scale-95">Send</button>
                             </form>
                         </>
                     ) : (
-                        <div className="flex-1 flex items-center justify-center text-gray-500">
+                        <div className="flex-1 flex items-center justify-center text-onSurface">
                             <p>Select a buddy to start chatting.</p>
                         </div>
                     )}
@@ -891,27 +1349,106 @@ const MessagesPage: React.FC = () => {
 
 const GroupPage: React.FC = () => {
     const { id } = useParams();
-    const [scratchpad, setScratchpad] = useState("## Shared Notes\n\n- Let's start by outlining the main topics for today.");
-    const [whiteboardData, setWhiteboardData] = useState([]);
+    const [group, setGroup] = useState<StudyGroup | null>(null);
+    const [members, setMembers] = useState<User[]>([]);
+    const [sharedContent, setSharedContent] = useState<SharedContent>({ groupId: id!, scratchpad: "## Shared Notes\n\n- Loading...", whiteboardData: [] });
+    const [loading, setLoading] = useState(true);
+    const scratchpadUpdateTimeout = useRef<number | null>(null);
+
+    const contentDocRef = useMemo(() => doc(db, "studyGroups", id!, "content", "shared"), [id]);
     
-    const groupName = "Physics Problem Solvers"; // Placeholder
+    useEffect(() => {
+        if (!id) return;
+        setLoading(true);
+
+        const groupDocRef = doc(db, "studyGroups", id);
+        const unsubGroup = onSnapshot(groupDocRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const groupData = { id: docSnap.id, ...docSnap.data() } as StudyGroup;
+                setGroup(groupData);
+            } else {
+                setGroup(null);
+            }
+        });
+        
+        const unsubContent = onSnapshot(contentDocRef, (docSnap) => {
+            if(docSnap.exists()){
+                setSharedContent(docSnap.data() as SharedContent);
+            } else {
+                // Create it if it doesn't exist
+                const initialContent: SharedContent = { groupId: id, scratchpad: "## Shared Notes\n\n- Let's start!", whiteboardData: []};
+                setDoc(contentDocRef, initialContent);
+                setSharedContent(initialContent);
+            }
+            setLoading(false);
+        });
+
+        return () => {
+            unsubGroup();
+            unsubContent();
+        };
+    }, [id, contentDocRef]);
+    
+    useEffect(() => {
+        if (!group) return;
+        const fetchMembers = async () => {
+            const memberPromises = group.memberIds.map(uid => getDoc(doc(db, "users", uid)));
+            const memberDocs = await Promise.all(memberPromises);
+            const memberData = memberDocs
+                .filter(d => d.exists())
+                .map(d => ({uid: d.id, ...d.data()}) as User);
+            setMembers(memberData);
+        };
+        fetchMembers();
+    }, [group]);
+    
+    const handleScratchpadChange = (newText: string) => {
+        setSharedContent(prev => ({ ...prev, scratchpad: newText }));
+        if (scratchpadUpdateTimeout.current) {
+            clearTimeout(scratchpadUpdateTimeout.current);
+        }
+        scratchpadUpdateTimeout.current = window.setTimeout(async () => {
+            await updateDoc(contentDocRef, { scratchpad: newText });
+        }, 500);
+    };
+
+    const handleWhiteboardDraw = async (newData: any) => {
+        setSharedContent(prev => ({ ...prev, whiteboardData: newData }));
+        await updateDoc(contentDocRef, { whiteboardData: newData });
+    };
+
+    if (loading) return <LoadingSpinner />;
+    if (!group) return <div className="container mx-auto p-8 animate-fadeIn text-center"><h1 className="text-2xl">Group not found.</h1></div>
 
     return (
-        <div className="container mx-auto p-8">
-            <h1 className="text-3xl font-bold mb-2">Group Workspace: {groupName}</h1>
-            <p className="text-gray-500 mb-6">Group ID: {id}</p>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div>
-                    <h2 className="text-2xl font-semibold mb-4">Shared Scratchpad</h2>
-                    <textarea 
-                        className="w-full h-96 p-4 border rounded-lg shadow-inner font-mono text-sm"
-                        value={scratchpad}
-                        onChange={(e) => setScratchpad(e.target.value)}
-                    />
+        <div className="container mx-auto p-8 animate-fadeIn">
+            <h1 className="text-4xl font-bold mb-2 text-onBackground">{group.name}</h1>
+            <p className="text-onSurface mb-6">{group.description}</p>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                 <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-8">
+                     <div>
+                        <h2 className="text-2xl font-semibold mb-4 text-onBackground">Shared Scratchpad</h2>
+                        <textarea 
+                            className="w-full h-96 p-4 border border-gray-600 rounded-lg shadow-inner font-mono text-sm bg-surface text-onBackground focus:ring-primary focus:border-primary"
+                            value={sharedContent.scratchpad}
+                            onChange={(e) => handleScratchpadChange(e.target.value)}
+                        />
+                    </div>
+                    <div>
+                        <h2 className="text-2xl font-semibold mb-4 text-onBackground">Shared Whiteboard</h2>
+                        <Whiteboard width={500} height={400} onDraw={handleWhiteboardDraw} initialData={sharedContent.whiteboardData}/>
+                    </div>
                 </div>
-                <div>
-                    <h2 className="text-2xl font-semibold mb-4">Shared Whiteboard</h2>
-                    <Whiteboard width={500} height={400} onDraw={setWhiteboardData} initialData={whiteboardData}/>
+                <div className="lg:col-span-1 bg-surface p-6 rounded-lg shadow-md border border-gray-700">
+                     <h2 className="text-2xl font-semibold mb-4 text-onBackground">Members ({members.length})</h2>
+                     <ul className="space-y-3">
+                        {members.map(member => (
+                            <li key={member.uid} className="flex items-center gap-3">
+                                <Avatar user={member} className="w-10 h-10" />
+                                <span className="font-semibold text-onBackground">{member.username}</span>
+                            </li>
+                        ))}
+                     </ul>
                 </div>
             </div>
         </div>

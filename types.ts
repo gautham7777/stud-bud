@@ -15,6 +15,7 @@ export interface User {
   uid: string;
   email: string;
   username: string;
+  photoURL?: string;
   connections?: string[]; // Array of user UIDs
 }
 
@@ -26,6 +27,7 @@ export interface StudentProfile {
   availability: string[];
   subjectsNeedHelp: number[]; // Array of subject IDs
   subjectsCanHelp: number[]; // Array of subject IDs
+  badges?: string[];
 }
 
 export interface Subject {
@@ -36,8 +38,10 @@ export interface Subject {
 export interface StudyGroup {
   id: string;
   name: string;
+  description: string;
   creatorId: string;
   subjectId: number;
+  subjectName: string;
   memberIds: string[];
 }
 
