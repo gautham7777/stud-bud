@@ -53,10 +53,35 @@ export interface Message {
   timestamp: number;
 }
 
+export interface QuizQuestion {
+  question: string;
+  options: string[];
+  correctAnswer: string;
+}
+
+export interface Quiz {
+  id: string;
+  title: string;
+  subject: string;
+  questions: QuizQuestion[];
+  createdBy: string;
+  createdAt: number;
+}
+
+export interface UserQuizAttempt {
+  userId: string;
+  username: string;
+  score: number;
+  total: number;
+  timestamp: number;
+}
+
 export interface SharedContent {
   groupId: string;
   scratchpad: string;
   whiteboardData: any; // Store drawing paths, etc.
+  quizzes?: Quiz[];
+  quizAttempts?: { [quizId: string]: UserQuizAttempt[] };
 }
 
 export interface StudyRequest {

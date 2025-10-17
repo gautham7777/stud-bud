@@ -1,6 +1,8 @@
+
+
 import React, { useState, useContext, createContext, useMemo, useEffect, useRef } from 'react';
 import { HashRouter, Routes, Route, Link, Navigate, useLocation, useParams, useNavigate } from 'react-router-dom';
-import { User, StudentProfile, StudyGroup, Message, SharedContent, StudyRequest, Subject, LearningStyle, StudyMethod } from './types';
+import { User, StudentProfile, StudyGroup, Message, SharedContent, StudyRequest, Subject, LearningStyle, StudyMethod, Quiz, QuizQuestion, UserQuizAttempt } from './types';
 import { ALL_SUBJECTS, ALL_AVAILABILITY_OPTIONS, ALL_LEARNING_STYLES, ALL_STUDY_METHODS } from './constants';
 import { BookOpenIcon, UsersIcon, ChatBubbleIcon, UserCircleIcon, LogoutIcon, CheckCircleIcon, XCircleIcon, PlusCircleIcon, SearchIcon, SparklesIcon, TrophyIcon } from './components/icons';
 import Whiteboard from './components/Whiteboard';
@@ -12,9 +14,9 @@ import {
   createUserWithEmailAndPassword,
   signOut,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, collection, getDocs, updateDoc, query, where, addDoc, onSnapshot, arrayUnion, Timestamp, orderBy, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, getDocs, updateDoc, query, where, addDoc, onSnapshot, arrayUnion, Timestamp, orderBy, serverTimestamp, arrayRemove } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 
 
 // --- AUTH CONTEXT ---
@@ -125,7 +127,7 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
         const earnedBadges = checkForBadges(newProfileData);
         const allBadges = [...new Set([...existingBadges, ...earnedBadges])];
         
-        const finalProfile = { ...updatedProfile, badges: allBadges };
+        const finalProfile = { ...newProfileData, ...updatedProfile, badges: allBadges };
         
         const profileDocRef = doc(db, "profiles", currentUser.uid);
         await setDoc(profileDocRef, finalProfile, { merge: true });
@@ -181,6 +183,7 @@ const Avatar: React.FC<{ user: User | null, className?: string}> = ({ user, clas
 const Header: React.FC = () => {
     const { currentUser, logout } = useAuth();
     const location = useLocation();
+    const [isMenuOpen, setIsMenuOpen] = useState(false);
     const navItems = [
         { path: '/', label: 'Dashboard', icon: BookOpenIcon },
         { path: '/discover', label: 'Discover', icon: SearchIcon },
@@ -200,27 +203,42 @@ const Header: React.FC = () => {
                             <span className="text-onBackground">StudyBuddy</span>
                         </Link>
                     </div>
-                    <div className="hidden md:block">
-                        <div className="ml-10 flex items-baseline space-x-4">
-                            {navItems.map(item => (
-                                <Link
-                                    key={item.path}
-                                    to={item.path}
-                                    className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 ${location.pathname === item.path ? 'bg-primary text-onPrimary shadow-md' : 'text-onSurface hover:bg-surface/50 hover:text-onBackground'}`}
-                                >
-                                    <item.icon className="h-5 w-5" />
-                                    {item.label}
-                                </Link>
-                            ))}
-                        </div>
+                    <div className="hidden md:flex items-center space-x-4">
+                        {navItems.map(item => (
+                            <Link
+                                key={item.path}
+                                to={item.path}
+                                className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 ${location.pathname === item.path ? 'bg-primary text-onPrimary shadow-md' : 'text-onSurface hover:bg-surface/50 hover:text-onBackground'}`}
+                            >
+                                <item.icon className="h-5 w-5" />
+                                {item.label}
+                            </Link>
+                        ))}
                     </div>
                     <div className="flex items-center gap-4">
                          <Avatar user={currentUser} className="w-10 h-10" />
-                        <button onClick={logout} className="p-2 rounded-full text-onSurface hover:text-primary hover:bg-surface/50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-background focus:ring-primary transition-colors duration-200">
+                        <button onClick={logout} className="p-2 rounded-full text-onSurface hover:text-primary hover:bg-surface/50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-background focus:ring-primary transition-colors duration-200 hidden md:block">
                             <LogoutIcon className="h-6 w-6" />
                         </button>
+                         <div className="md:hidden">
+                            <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="p-2 rounded-full text-onSurface hover:text-primary hover:bg-surface/50">
+                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={isMenuOpen ? "M6 18L18 6M6 6l12 12" : "M4 6h16M4 12h16M4 18h16"} /></svg>
+                            </button>
+                        </div>
                     </div>
                 </div>
+                {isMenuOpen && (
+                     <div className="md:hidden pb-4">
+                        {navItems.map(item => (
+                            <Link key={item.path} to={item.path} onClick={() => setIsMenuOpen(false)} className={`flex items-center gap-3 px-3 py-3 rounded-md font-medium transition-all duration-200 ${location.pathname === item.path ? 'bg-primary text-onPrimary shadow-md' : 'text-onSurface hover:bg-surface/50 hover:text-onBackground'}`}>
+                                 <item.icon className="h-5 w-5" /> {item.label}
+                            </Link>
+                        ))}
+                         <button onClick={() => { logout(); setIsMenuOpen(false); }} className="w-full flex items-center gap-3 px-3 py-3 rounded-md font-medium text-onSurface hover:bg-surface/50 hover:text-onBackground">
+                            <LogoutIcon className="h-6 w-6" /> Logout
+                        </button>
+                    </div>
+                )}
             </nav>
         </header>
     );
@@ -242,7 +260,7 @@ const UserCard: React.FC<{
     onConnect: () => void;
     requestStatus: 'pending' | 'accepted' | 'declined' | null;
     style?: React.CSSProperties;
-    // Fix: Add className to props to allow passing CSS classes for styling.
+    // FIX: Add className to props to allow passing CSS classes for styling.
     className?: string;
 }> = ({ user, profile, onConnect, requestStatus, style, className }) => {
     
@@ -273,10 +291,10 @@ const UserCard: React.FC<{
     return (
         <div style={style} className={`bg-surface rounded-xl shadow-lg p-6 flex flex-col gap-4 transition-all duration-300 hover:shadow-2xl hover:-translate-y-1 hover:shadow-primary/20 border border-transparent hover:border-primary/50 ${className || ''}`}>
             <div className="flex items-center gap-4">
-                <Avatar user={user} className="w-20 h-20 text-3xl"/>
+                <Avatar user={user} className="w-16 h-16 sm:w-20 sm:h-20 text-3xl"/>
                 <div>
-                    <h3 className="text-2xl font-bold text-primary">{user.username}</h3>
-                    <p className="text-onSurface italic">"{profile.bio || 'No bio yet.'}"</p>
+                    <h3 className="text-xl sm:text-2xl font-bold text-primary">{user.username}</h3>
+                    <p className="text-sm text-onSurface italic">"{profile.bio || 'No bio yet.'}"</p>
                 </div>
             </div>
             <div>
@@ -483,6 +501,7 @@ const ProfilePage: React.FC = () => {
     const [uploadError, setUploadError] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isGeneratingBio, setIsGeneratingBio] = useState(false);
+    const [bioError, setBioError] = useState<string | null>(null);
 
 
     useEffect(() => {
@@ -490,14 +509,15 @@ const ProfilePage: React.FC = () => {
     }, [currentUserProfile]);
 
     if (!formData || !currentUser) {
-        return <div className="container mx-auto p-8 animate-fadeIn"><p>Loading profile...</p></div>
+        return <div className="container mx-auto p-4 sm:p-8 animate-fadeIn"><p>Loading profile...</p></div>
     }
     
     const handleGenerateBio = async () => {
         if (!currentUserProfile || !formData) return;
         setIsGeneratingBio(true);
+        setBioError(null);
         try {
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
             const subjectsCanHelpStr = formData.subjectsCanHelp.map(getSubjectName).join(', ');
             const subjectsNeedHelpStr = formData.subjectsNeedHelp.map(getSubjectName).join(', ');
             const learningStyle = formData.learningStyle;
@@ -515,7 +535,8 @@ const ProfilePage: React.FC = () => {
 
             setFormData({ ...formData, bio: response.text });
         } catch (error) {
-            console.error("Bio generation failed:", error);
+            console.error("AI Bio generation failed. This is likely an API key or configuration issue.", error);
+            setBioError("Failed to generate bio. The AI service may not be configured correctly.");
         } finally {
             setIsGeneratingBio(false);
         }
@@ -591,14 +612,14 @@ const ProfilePage: React.FC = () => {
     };
 
     return (
-        <div className="container mx-auto p-8 animate-fadeIn">
-            <h1 className="text-4xl font-bold mb-6 text-onBackground">Edit Your Profile</h1>
+        <div className="container mx-auto p-4 sm:p-8 animate-fadeIn">
+            <h1 className="text-3xl sm:text-4xl font-bold mb-6 text-onBackground">Edit Your Profile</h1>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 <div className="lg:col-span-1">
                     <div className="bg-surface p-6 rounded-lg shadow-lg text-center border border-gray-700">
                         <h2 className="text-xl font-semibold mb-4 text-onBackground">Profile Picture</h2>
-                        <div className="relative w-40 h-40 mx-auto">
-                            <Avatar user={{...currentUser, photoURL: imagePreview || currentUser.photoURL}} className="w-40 h-40 text-5xl" />
+                        <div className="relative w-32 h-32 sm:w-40 sm:h-40 mx-auto">
+                            <Avatar user={{...currentUser, photoURL: imagePreview || currentUser.photoURL}} className="w-full h-full text-5xl" />
                         </div>
                         <input type="file" accept="image/*" onChange={handleFileChange} ref={fileInputRef} className="hidden" />
                         <button onClick={() => fileInputRef.current?.click()} className="mt-4 w-full px-4 py-2 bg-gray-600 text-onBackground font-semibold rounded-lg hover:bg-gray-500 transition-colors">
@@ -635,7 +656,7 @@ const ProfilePage: React.FC = () => {
                     </div>
                 </div>
                 <div className="lg:col-span-2">
-                    <form onSubmit={handleSubmit} className="bg-surface p-8 rounded-lg shadow-lg space-y-8 border border-gray-700">
+                    <form onSubmit={handleSubmit} className="bg-surface p-6 sm:p-8 rounded-lg shadow-lg space-y-8 border border-gray-700">
                         <div>
                             <label className="text-lg font-semibold flex justify-between items-center text-onBackground">
                                 <span>About Me</span>
@@ -644,7 +665,7 @@ const ProfilePage: React.FC = () => {
                                     {isGeneratingBio ? 'Generating...' : 'Generate with AI'}
                                 </button>
                             </label>
-
+                            {bioError && <p className="text-sm text-danger mt-2">{bioError}</p>}
                             <textarea value={formData.bio} onChange={e => setFormData({...formData, bio: e.target.value})} className="mt-2 w-full p-2 border border-gray-600 rounded-md focus:ring-2 focus:ring-primary bg-gray-700 text-onBackground" rows={3}></textarea>
                         </div>
                         
@@ -773,7 +794,9 @@ const DiscoverPage: React.FC = () => {
 
         return () => {
             unsubscribe();
-            // groupUnsubscribe(); // onSnapshot returns the unsub function
+            if (typeof groupUnsubscribe === 'function') {
+                groupUnsubscribe();
+            }
         };
     }, [currentUser]);
     
@@ -900,7 +923,7 @@ const DiscoverPage: React.FC = () => {
         const inputClasses = "w-full p-2 border border-gray-600 rounded-md bg-gray-700 text-onBackground focus:ring-primary focus:border-primary";
 
         return (
-            <div className="fixed inset-0 bg-black bg-opacity-70 z-50 flex justify-center items-center" onClick={onClose}>
+            <div className="fixed inset-0 bg-black bg-opacity-70 z-50 flex justify-center items-center p-4" onClick={onClose}>
                 <div className="bg-surface rounded-lg p-8 shadow-2xl w-full max-w-lg border border-gray-700" onClick={e => e.stopPropagation()}>
                     <h2 className="text-2xl font-bold mb-4 text-onBackground">Create a New Study Group</h2>
                     <form onSubmit={handleSubmit} className="space-y-4">
@@ -930,10 +953,10 @@ const DiscoverPage: React.FC = () => {
     };
     
     return (
-        <div className="container mx-auto p-8 animate-fadeIn">
+        <div className="container mx-auto p-4 sm:p-8 animate-fadeIn">
              <CreateGroupModal isOpen={isCreateModalOpen} onClose={() => setCreateModalOpen(false)} onCreate={handleCreateGroup} />
-             <div className="flex justify-between items-center mb-6">
-                 <h1 className="text-4xl font-bold">Discover</h1>
+             <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
+                 <h1 className="text-3xl sm:text-4xl font-bold">Discover</h1>
                  {activeTab === 'groups' && (
                      <button onClick={() => setCreateModalOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-primary text-white font-semibold rounded-lg hover:bg-indigo-500 transition-colors hover:shadow-[0_0_15px_rgba(99,102,241,0.5)]">
                         <PlusCircleIcon className="w-5 h-5" />
@@ -949,7 +972,7 @@ const DiscoverPage: React.FC = () => {
 
              {activeTab === 'buddies' ? (
                 loading ? <p>Finding potential buddies...</p> :
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {potentialMatches.map(({ user, profile }, index) => (
                         <UserCard 
                             key={user.uid} 
@@ -965,7 +988,7 @@ const DiscoverPage: React.FC = () => {
                 </div>
              ) : (
                 loadingGroups ? <p>Loading groups...</p> :
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                    {groups.map(group => <GroupCard key={group.id} group={group} />)}
                    {groups.length === 0 && <p className="text-center text-onSurface col-span-full">No groups found. Why not create one?</p>}
                 </div>
@@ -1080,17 +1103,19 @@ const HomePage: React.FC = () => {
         setIsGeneratingPlan(true);
         setStudyPlan(null);
         try {
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
             const subjectName = getSubjectName(selectedSubjectId);
             const prompt = `Create a concise, one-week study plan for the subject "${subjectName}". Break it down into daily tasks. The plan should be encouraging and easy to follow. Use markdown for formatting with headings for each day.`;
             const response = await ai.models.generateContent({
                 model: 'gemini-2.5-flash',
                 contents: prompt,
             });
+            // FIX: The AI response text is a property, not a method.
+            // The error "This expression is not callable" suggests text() was being called.
             setStudyPlan(response.text);
         } catch (error) {
-            console.error("Error generating study plan:", error);
-            setStudyPlan("Sorry, I couldn't generate a plan right now. Please try again later.");
+            console.error("AI Study Plan generation failed. This is likely an API key or configuration issue.", error);
+            setStudyPlan("Sorry, there was an issue connecting to the AI service. This feature may not be configured correctly. Please try again later.");
         } finally {
             setIsGeneratingPlan(false);
         }
@@ -1110,8 +1135,8 @@ const HomePage: React.FC = () => {
     const inputClasses = "w-full sm:w-auto flex-grow p-2 border border-gray-600 rounded-md focus:ring-primary focus:border-primary bg-surface text-onBackground";
 
     return (
-        <div className="container mx-auto p-8 animate-fadeIn">
-             <h1 className="text-4xl font-bold text-onBackground">Dashboard</h1>
+        <div className="container mx-auto p-4 sm:p-8 animate-fadeIn">
+             <h1 className="text-3xl sm:text-4xl font-bold text-onBackground">Dashboard</h1>
              <p className="mt-2 text-lg text-onSurface">Here's your study overview.</p>
              <div className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="bg-surface/50 border border-gray-700 p-6 rounded-lg shadow-lg lg:col-span-2">
@@ -1137,9 +1162,9 @@ const HomePage: React.FC = () => {
                     incomingRequests.length > 0 ? (
                         <ul className="mt-4 space-y-3">
                             {incomingRequests.map(req => (
-                                <li key={req.id} className="flex items-center justify-between p-2 bg-background rounded-md border border-gray-700">
-                                    <span className="text-onSurface">Request from <span className="font-bold text-onBackground">{req.fromUsername}</span></span>
-                                    <div className="flex gap-2">
+                                <li key={req.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-2 bg-background rounded-md border border-gray-700 gap-2">
+                                    <span className="text-onSurface text-sm">Request from <span className="font-bold text-onBackground">{req.fromUsername}</span></span>
+                                    <div className="flex gap-2 self-end sm:self-center">
                                         <button onClick={() => handleRequestResponse(req, 'accepted')} className="p-1 text-green-400 hover:bg-green-500/20 rounded-full transition-colors transform hover:scale-125" title="Accept"><CheckCircleIcon className="w-6 h-6" /></button>
                                         <button onClick={() => handleRequestResponse(req, 'declined')} className="p-1 text-red-400 hover:bg-red-500/20 rounded-full transition-colors transform hover:scale-125" title="Decline"><XCircleIcon className="w-6 h-6" /></button>
                                     </div>
@@ -1169,7 +1194,7 @@ const HomePage: React.FC = () => {
 
                 <div className="bg-surface/50 border border-gray-700 p-6 rounded-lg shadow-lg lg:col-span-3">
                     <h2 className="text-xl font-semibold flex items-center gap-2 text-primary"><SparklesIcon /> AI Study Planner</h2>
-                    <div className="mt-4 flex flex-col sm:flex-row items-center gap-4">
+                    <div className="mt-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
                         <select
                             onChange={(e) => setSelectedSubjectId(Number(e.target.value))}
                             className={inputClasses}
@@ -1190,12 +1215,12 @@ const HomePage: React.FC = () => {
                     {studyPlan && (
                         <div className="mt-6 p-4 bg-indigo-500/10 rounded-lg animate-fadeIn border border-indigo-500/30">
                             <h3 className="text-lg font-bold mb-2 text-onBackground">Your {getSubjectName(selectedSubjectId!)} Study Plan:</h3>
-                            <p className="whitespace-pre-wrap text-onSurface prose prose-invert">{studyPlan}</p>
+                            <div className="whitespace-pre-wrap text-onSurface prose prose-invert max-w-none">{studyPlan}</div>
                             
-                            {buddies.length > 0 && (
+                            {buddies.length > 0 && studyPlan.startsWith("Sorry,") === false && (
                                 <div className="mt-6 pt-4 border-t border-indigo-500/30">
                                     <h4 className="font-semibold text-onBackground">Share with a buddy:</h4>
-                                    <div className="mt-2 flex flex-col sm:flex-row items-center gap-4">
+                                    <div className="mt-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
                                         <select onChange={(e) => setSelectedBuddyToSend(e.target.value)} value={selectedBuddyToSend} className={inputClasses}>
                                             {buddies.map(buddy => <option key={buddy.uid} value={buddy.uid}>{buddy.username}</option>)}
                                         </select>
@@ -1223,6 +1248,9 @@ const MessagesPage: React.FC = () => {
     const [messages, setMessages] = useState<Message[]>([]);
     const [newMessage, setNewMessage] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const [isSummarizing, setIsSummarizing] = useState(false);
+    const [isChallengeModalOpen, setChallengeModalOpen] = useState(false);
+
 
     useEffect(() => {
         if (!currentUser?.connections) {
@@ -1291,12 +1319,59 @@ const MessagesPage: React.FC = () => {
         setNewMessage('');
     };
     
+    const handleSummarize = async () => {
+        if (messages.length < 5) {
+            alert("Not enough messages to summarize.");
+            return;
+        }
+        setIsSummarizing(true);
+        try {
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+            const conversationText = messages.map(m => `${buddies.find(b => b.uid === m.senderId)?.username || 'User'}: ${m.text}`).join('\n');
+            const prompt = `Summarize the key points of the following conversation between two students:\n\n${conversationText}`;
+            
+            const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
+            
+            setNewMessage(`Summary of our recent chat:\n- ${response.text.replace(/\*/g, '').split('\n').join('\n- ')}`);
+        } catch (error) {
+            console.error("Chat summarization failed:", error);
+            alert("Could not summarize the chat. The AI service may be unavailable.");
+        } finally {
+            setIsSummarizing(false);
+        }
+    };
+    
+    const handleSendChallenge = async (subjectId: number) => {
+        if (!currentUser || !selectedBuddy) return;
+        const subjectName = getSubjectName(subjectId);
+        const challengeText = `${currentUser.username} challenged you to a ${subjectName} quiz! Winner gets bragging rights.`;
+        await sendMessageToBuddy(currentUser.uid, selectedBuddy.uid, challengeText);
+        setChallengeModalOpen(false);
+    };
+    
+    const ChallengeModal: React.FC = () => (
+         <div className="fixed inset-0 bg-black bg-opacity-70 z-50 flex justify-center items-center p-4" onClick={() => setChallengeModalOpen(false)}>
+            <div className="bg-surface rounded-lg p-6 shadow-2xl w-full max-w-sm border border-gray-700" onClick={e => e.stopPropagation()}>
+                <h2 className="text-xl font-bold mb-4 text-onBackground">Challenge {selectedBuddy?.username}</h2>
+                <p className="text-onSurface mb-4">Select a subject for the quiz challenge:</p>
+                <div className="grid grid-cols-2 gap-3">
+                    {ALL_SUBJECTS.map(s => (
+                        <button key={s.id} onClick={() => handleSendChallenge(s.id)} className="p-3 bg-primary/20 text-primary rounded-md hover:bg-primary/40 transition-colors font-semibold">
+                            {s.name}
+                        </button>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+
     return (
-        <div className="container mx-auto p-4 md:p-8 animate-fadeIn">
-            <h1 className="text-3xl font-bold mb-6">Messages</h1>
-            <div className="flex flex-col md:flex-row bg-surface shadow-lg rounded-lg h-[75vh] border border-gray-700">
+        <div className="container mx-auto p-4 sm:p-8 animate-fadeIn">
+            {isChallengeModalOpen && <ChallengeModal />}
+            <h1 className="text-3xl font-bold mb-6 hidden sm:block">Messages</h1>
+            <div className="flex flex-col md:flex-row bg-surface shadow-lg rounded-lg h-[85vh] sm:h-[75vh] border border-gray-700">
                 {/* Buddies List */}
-                <div className="w-full md:w-1/3 border-r border-gray-700 flex flex-col">
+                <div className={`w-full md:w-1/3 border-r border-gray-700 flex-col ${selectedBuddy ? 'hidden md:flex' : 'flex'}`}>
                     <div className="p-4 border-b border-gray-700">
                         <h2 className="text-xl font-semibold text-onBackground">Contacts</h2>
                     </div>
@@ -1314,12 +1389,18 @@ const MessagesPage: React.FC = () => {
                 </div>
 
                 {/* Chat Window */}
-                <div className="w-full md:w-2/3 flex flex-col">
+                <div className={`w-full md:w-2/3 flex-col ${selectedBuddy ? 'flex' : 'hidden md:flex'}`}>
                     {selectedBuddy ? (
                         <>
-                            <div className="p-4 border-b border-gray-700 flex items-center gap-3">
-                                 <Avatar user={selectedBuddy} className="w-10 h-10" />
-                                <h2 className="text-xl font-semibold text-onBackground">{selectedBuddy.username}</h2>
+                            <div className="p-3 border-b border-gray-700 flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-3">
+                                   <button onClick={() => setSelectedBuddy(null)} className="md:hidden p-2 rounded-full hover:bg-surface"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg></button>
+                                   <Avatar user={selectedBuddy} className="w-10 h-10" />
+                                   <h2 className="text-lg font-semibold text-onBackground">{selectedBuddy.username}</h2>
+                                </div>
+                                <button onClick={handleSummarize} disabled={isSummarizing} className="p-2 rounded-full hover:bg-primary/20 text-primary transition-colors disabled:opacity-50" title="Summarize Chat">
+                                   <SparklesIcon className="w-5 h-5" />
+                                </button>
                             </div>
                             <div className="flex-1 p-4 overflow-y-auto bg-background">
                                 {messages.map(msg => (
@@ -1331,13 +1412,14 @@ const MessagesPage: React.FC = () => {
                                 ))}
                                 <div ref={messagesEndRef} />
                             </div>
-                            <form onSubmit={handleSendMessage} className="p-4 border-t border-gray-700 flex gap-2 bg-surface">
+                            <form onSubmit={handleSendMessage} className="p-2 border-t border-gray-700 flex gap-2 bg-surface">
+                                <button type="button" onClick={() => setChallengeModalOpen(true)} className="p-2 rounded-full hover:bg-primary/20 text-primary" title="Quiz Challenge"><SparklesIcon /></button>
                                 <input type="text" value={newMessage} onChange={e => setNewMessage(e.target.value)} placeholder="Type a message..." className="flex-1 p-2 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary bg-gray-700 text-onBackground"/>
                                 <button type="submit" className="px-4 py-2 bg-primary text-white font-semibold rounded-lg hover:bg-indigo-500 transition transform active:scale-95">Send</button>
                             </form>
                         </>
                     ) : (
-                        <div className="flex-1 flex items-center justify-center text-onSurface">
+                        <div className="flex-1 items-center justify-center text-onSurface hidden md:flex">
                             <p>Select a buddy to start chatting.</p>
                         </div>
                     )}
@@ -1348,13 +1430,17 @@ const MessagesPage: React.FC = () => {
 };
 
 const GroupPage: React.FC = () => {
+    const { currentUser } = useAuth();
     const { id } = useParams();
     const [group, setGroup] = useState<StudyGroup | null>(null);
     const [members, setMembers] = useState<User[]>([]);
-    const [sharedContent, setSharedContent] = useState<SharedContent>({ groupId: id!, scratchpad: "## Shared Notes\n\n- Loading...", whiteboardData: [] });
+    const [sharedContent, setSharedContent] = useState<SharedContent | null>(null);
     const [loading, setLoading] = useState(true);
     const scratchpadUpdateTimeout = useRef<number | null>(null);
-
+    const [activeTab, setActiveTab] = useState('notes');
+    const [isGeneratingQuiz, setIsGeneratingQuiz] = useState(false);
+    const [selectedQuiz, setSelectedQuiz] = useState<Quiz | null>(null);
+    
     const contentDocRef = useMemo(() => doc(db, "studyGroups", id!, "content", "shared"), [id]);
     
     useEffect(() => {
@@ -1375,18 +1461,14 @@ const GroupPage: React.FC = () => {
             if(docSnap.exists()){
                 setSharedContent(docSnap.data() as SharedContent);
             } else {
-                // Create it if it doesn't exist
-                const initialContent: SharedContent = { groupId: id, scratchpad: "## Shared Notes\n\n- Let's start!", whiteboardData: []};
+                const initialContent: SharedContent = { groupId: id, scratchpad: "## Shared Notes\n\n- Let's start!", whiteboardData: [], quizzes: [], quizAttempts: {}};
                 setDoc(contentDocRef, initialContent);
                 setSharedContent(initialContent);
             }
             setLoading(false);
         });
 
-        return () => {
-            unsubGroup();
-            unsubContent();
-        };
+        return () => { unsubGroup(); unsubContent(); };
     }, [id, contentDocRef]);
     
     useEffect(() => {
@@ -1403,43 +1485,201 @@ const GroupPage: React.FC = () => {
     }, [group]);
     
     const handleScratchpadChange = (newText: string) => {
-        setSharedContent(prev => ({ ...prev, scratchpad: newText }));
-        if (scratchpadUpdateTimeout.current) {
-            clearTimeout(scratchpadUpdateTimeout.current);
-        }
+        setSharedContent(prev => prev ? ({ ...prev, scratchpad: newText }) : null);
+        if (scratchpadUpdateTimeout.current) clearTimeout(scratchpadUpdateTimeout.current);
         scratchpadUpdateTimeout.current = window.setTimeout(async () => {
             await updateDoc(contentDocRef, { scratchpad: newText });
         }, 500);
     };
 
     const handleWhiteboardDraw = async (newData: any) => {
-        setSharedContent(prev => ({ ...prev, whiteboardData: newData }));
+        setSharedContent(prev => prev ? ({ ...prev, whiteboardData: newData }) : null);
         await updateDoc(contentDocRef, { whiteboardData: newData });
+    };
+    
+    const handleGenerateQuiz = async () => {
+        if (!group || !currentUser) return;
+        setIsGeneratingQuiz(true);
+        try {
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+            const prompt = `Generate a 5-question multiple-choice quiz about ${group.subjectName}. For each question, provide 4 options and clearly indicate the correct answer.`;
+
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: prompt,
+                config: {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: Type.OBJECT,
+                        properties: {
+                            quiz: {
+                                type: Type.ARRAY,
+                                items: {
+                                    type: Type.OBJECT,
+                                    properties: {
+                                        question: { type: Type.STRING },
+                                        options: { type: Type.ARRAY, items: { type: Type.STRING } },
+                                        correctAnswer: { type: Type.STRING }
+                                    },
+                                     required: ["question", "options", "correctAnswer"]
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+            
+            const quizData = JSON.parse(response.text);
+            const newQuiz: Quiz = {
+                id: `quiz_${Date.now()}`,
+                title: `${group.subjectName} Quiz`,
+                subject: group.subjectName,
+                questions: quizData.quiz,
+                createdBy: currentUser.uid,
+                createdAt: Date.now()
+            };
+
+            await updateDoc(contentDocRef, { quizzes: arrayUnion(newQuiz) });
+            setActiveTab('quiz');
+        } catch (error) {
+            console.error("Quiz generation failed:", error);
+            alert("Failed to generate quiz. The AI service may be unavailable or returned an unexpected format.");
+        } finally {
+            setIsGeneratingQuiz(false);
+        }
+    };
+    
+    const handleQuizSubmit = async (quiz: Quiz, score: number) => {
+        if (!currentUser) return;
+        const newAttempt: UserQuizAttempt = {
+            userId: currentUser.uid,
+            username: currentUser.username,
+            score,
+            total: quiz.questions.length,
+            timestamp: Date.now()
+        };
+        const currentAttempts = sharedContent?.quizAttempts?.[quiz.id] || [];
+        const updatedAttempts = [...currentAttempts.filter(a => a.userId !== currentUser.uid), newAttempt];
+        
+        await updateDoc(contentDocRef, { [`quizAttempts.${quiz.id}`]: updatedAttempts });
     };
 
     if (loading) return <LoadingSpinner />;
-    if (!group) return <div className="container mx-auto p-8 animate-fadeIn text-center"><h1 className="text-2xl">Group not found.</h1></div>
+    if (!group || !sharedContent) return <div className="container mx-auto p-8 animate-fadeIn text-center"><h1 className="text-2xl">Group not found.</h1></div>
+    
+    const QuizComponent: React.FC<{ quiz: Quiz; onSubmit: (score: number) => void; attempts: UserQuizAttempt[] }> = ({ quiz, onSubmit, attempts }) => {
+        const [answers, setAnswers] = useState<{[key: number]: string}>({});
+        const [submitted, setSubmitted] = useState(false);
+        const myAttempt = attempts.find(a => a.userId === currentUser?.uid);
+
+        const handleSubmit = () => {
+            const score = quiz.questions.reduce((count, q, index) => {
+                return answers[index] === q.correctAnswer ? count + 1 : count;
+            }, 0);
+            onSubmit(score);
+            setSubmitted(true);
+        };
+
+        if (myAttempt || submitted) {
+            return (
+                <div className="bg-surface p-4 rounded-lg">
+                    <h3 className="font-bold text-lg">Your Score: {myAttempt?.score}/{myAttempt?.total}</h3>
+                    <p className="text-onSurface">You've completed this quiz!</p>
+                </div>
+            );
+        }
+
+        return (
+            <div className="space-y-6">
+                {quiz.questions.map((q, i) => (
+                    <div key={i}>
+                        <p className="font-semibold">{i + 1}. {q.question}</p>
+                        <div className="mt-2 space-y-2">
+                            {q.options.map(opt => (
+                                <label key={opt} className={`block p-3 rounded-lg cursor-pointer ${answers[i] === opt ? 'bg-primary/30' : 'bg-gray-700/50'}`}>
+                                    <input type="radio" name={`q-${i}`} value={opt} onChange={(e) => setAnswers({...answers, [i]: e.target.value})} className="mr-2"/>
+                                    {opt}
+                                </label>
+                            ))}
+                        </div>
+                    </div>
+                ))}
+                <button onClick={handleSubmit} className="w-full px-4 py-2 bg-primary text-white font-semibold rounded-lg hover:bg-indigo-500">Submit Quiz</button>
+            </div>
+        );
+    };
 
     return (
-        <div className="container mx-auto p-8 animate-fadeIn">
-            <h1 className="text-4xl font-bold mb-2 text-onBackground">{group.name}</h1>
+        <div className="container mx-auto p-4 sm:p-8 animate-fadeIn">
+            <h1 className="text-3xl sm:text-4xl font-bold mb-2 text-onBackground">{group.name}</h1>
             <p className="text-onSurface mb-6">{group.description}</p>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                 <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-8">
-                     <div>
-                        <h2 className="text-2xl font-semibold mb-4 text-onBackground">Shared Scratchpad</h2>
-                        <textarea 
-                            className="w-full h-96 p-4 border border-gray-600 rounded-lg shadow-inner font-mono text-sm bg-surface text-onBackground focus:ring-primary focus:border-primary"
-                            value={sharedContent.scratchpad}
-                            onChange={(e) => handleScratchpadChange(e.target.value)}
-                        />
+                 <div className="lg:col-span-2">
+                    <div className="flex border-b border-gray-700 mb-4">
+                        <button onClick={() => setActiveTab('notes')} className={`px-4 py-2 font-semibold transition-colors ${activeTab === 'notes' ? 'border-b-2 border-primary text-primary' : 'text-onSurface'}`}>Notes & Board</button>
+                        <button onClick={() => setActiveTab('quiz')} className={`px-4 py-2 font-semibold transition-colors ${activeTab === 'quiz' ? 'border-b-2 border-primary text-primary' : 'text-onSurface'}`}>Shared Quiz</button>
                     </div>
-                    <div>
-                        <h2 className="text-2xl font-semibold mb-4 text-onBackground">Shared Whiteboard</h2>
-                        <Whiteboard width={500} height={400} onDraw={handleWhiteboardDraw} initialData={sharedContent.whiteboardData}/>
-                    </div>
+
+                    {activeTab === 'notes' && (
+                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                             <div>
+                                <h2 className="text-2xl font-semibold mb-4 text-onBackground">Shared Scratchpad</h2>
+                                <textarea 
+                                    className="w-full h-96 p-4 border border-gray-600 rounded-lg shadow-inner font-mono text-sm bg-surface text-onBackground focus:ring-primary focus:border-primary"
+                                    value={sharedContent.scratchpad}
+                                    onChange={(e) => handleScratchpadChange(e.target.value)}
+                                />
+                            </div>
+                            <div>
+                                <h2 className="text-2xl font-semibold mb-4 text-onBackground">Shared Whiteboard</h2>
+                                <Whiteboard width={500} height={400} onDraw={handleWhiteboardDraw} initialData={sharedContent.whiteboardData}/>
+                            </div>
+                        </div>
+                    )}
+                    {activeTab === 'quiz' && (
+                         <div className="space-y-6">
+                            <div className="flex justify-between items-center">
+                                <h2 className="text-2xl font-semibold text-onBackground">Quizzes</h2>
+                                <button onClick={handleGenerateQuiz} disabled={isGeneratingQuiz} className="flex items-center gap-2 px-4 py-2 bg-secondary text-white font-semibold rounded-lg hover:bg-teal-500 transition disabled:opacity-50">
+                                    <SparklesIcon className="w-5 h-5"/>
+                                    {isGeneratingQuiz ? "Generating..." : "Generate Quiz with AI"}
+                                </button>
+                            </div>
+                            
+                            {sharedContent.quizzes && sharedContent.quizzes.length > 0 ? (
+                                <div className="space-y-4">
+                                {sharedContent.quizzes.map(quiz => (
+                                    <div key={quiz.id} className="bg-surface p-4 rounded-lg border border-gray-700">
+                                        <details className="group">
+                                            <summary className="font-bold text-lg cursor-pointer flex justify-between items-center">
+                                                {quiz.title} - {quiz.questions.length} questions
+                                                <span className="group-open:rotate-90 transition-transform">▶</span>
+                                            </summary>
+                                            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                <QuizComponent quiz={quiz} attempts={sharedContent.quizAttempts?.[quiz.id] || []} onSubmit={(score) => handleQuizSubmit(quiz, score)} />
+                                                <div>
+                                                    <h4 className="font-bold mb-2">Scoreboard</h4>
+                                                    <ul className="space-y-2">
+                                                        {(sharedContent.quizAttempts?.[quiz.id] || []).sort((a,b) => b.score - a.score).map(att => (
+                                                            <li key={att.userId} className="flex justify-between p-2 bg-background rounded">
+                                                                <span>{att.username}</span>
+                                                                <span className="font-semibold">{att.score} / {att.total}</span>
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            </div>
+                                        </details>
+                                    </div>
+                                ))}
+                                </div>
+                            ) : (
+                                <p className="text-onSurface text-center py-8">No quizzes yet. Generate one to get started!</p>
+                            )}
+                         </div>
+                    )}
                 </div>
-                <div className="lg:col-span-1 bg-surface p-6 rounded-lg shadow-md border border-gray-700">
+                <div className="lg:col-span-1 bg-surface p-6 rounded-lg shadow-md border border-gray-700 h-fit">
                      <h2 className="text-2xl font-semibold mb-4 text-onBackground">Members ({members.length})</h2>
                      <ul className="space-y-3">
                         {members.map(member => (
@@ -1471,7 +1711,7 @@ const MainApp: React.FC = () => {
     return (
         <div className="min-h-screen bg-background">
             {currentUser && <Header />}
-            <main>
+            <main className="pb-16 md:pb-0">
                 <Routes>
                     <Route path="/auth" element={<AuthPage />} />
                     <Route path="/" element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
