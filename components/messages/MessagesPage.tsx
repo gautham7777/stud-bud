@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
-import { collection, query, orderBy, onSnapshot, doc, getDoc, writeBatch, getDocs, updateDoc, arrayRemove } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc, getDoc, writeBatch, getDocs, updateDoc, arrayRemove, where } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../../firebase';
 import { User, Message } from '../../types';
@@ -32,43 +32,72 @@ const MessagesPage: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        if (!currentUser?.connections) {
-            setBuddies([]);
-            return;
-        };
+        if (!currentUser) return;
 
-        const fetchBuddies = async () => {
-            if (currentUser.connections.length === 0) {
+        // FIX: Removed orderBy("lastMessageTimestamp", "desc") to avoid needing a composite index.
+        // Sorting will be handled client-side after fetching.
+        const conversationsQuery = query(
+            collection(db, "conversations"),
+            where("participants", "array-contains", currentUser.uid)
+        );
+
+        const unsubscribe = onSnapshot(conversationsQuery, async (snapshot) => {
+            const conversations = snapshot.docs.map(doc => doc.data());
+
+            // Sort conversations by most recent message on the client
+            conversations.sort((a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0));
+
+            const sortedBuddyIdsFromConvos = conversations
+                .flatMap(conv => conv.participants)
+                .filter(uid => uid !== currentUser.uid);
+            
+            const allConnectionIds = currentUser.connections || [];
+            const unsortedBuddyIds = allConnectionIds.filter(uid => !sortedBuddyIdsFromConvos.includes(uid));
+
+            const finalBuddyIds = [...new Set([...sortedBuddyIdsFromConvos, ...unsortedBuddyIds])];
+
+            if (finalBuddyIds.length === 0) {
                 setBuddies([]);
+                setSelectedBuddy(null);
                 return;
             }
-            const buddyPromises = currentUser.connections.map(uid => getDoc(doc(db, "users", uid)));
-            const buddyDocs = await Promise.all(buddyPromises);
-            const buddyData = buddyDocs
-                .filter(d => d.exists())
-                .map(doc => ({ uid: doc.id, ...doc.data() }) as User);
+
+            const buddyDataPromises = finalBuddyIds.map(async (uid) => {
+                const userDoc = await getDoc(doc(db, "users", uid));
+                if (userDoc.exists()) {
+                    return { uid: userDoc.id, ...userDoc.data() } as User;
+                }
+                return null;
+            });
+
+            const allBuddies = (await Promise.all(buddyDataPromises)).filter((b): b is User => b !== null);
+
+            setBuddies(allBuddies);
             
-            setBuddies(buddyData);
-            
-            if (buddyData.length > 0) {
+            if (allBuddies.length > 0) {
                 const initialBuddyId = location.state?.selectedBuddyId;
-                const buddyToSelect = initialBuddyId ? buddyData.find(b => b.uid === initialBuddyId) : buddyData[0];
-                
-                if (buddyToSelect) {
-                    setSelectedBuddy(buddyToSelect);
-                } else if (!selectedBuddy) {
-                    setSelectedBuddy(buddyData[0]);
-                }
-                
+                const currentBuddyStillExists = selectedBuddy && allBuddies.some(b => b.uid === selectedBuddy.uid);
+
+                let buddyToSelect = selectedBuddy;
+
                 if (initialBuddyId) {
+                    buddyToSelect = allBuddies.find(b => b.uid === initialBuddyId) || allBuddies[0];
                     navigate(location.pathname, { replace: true, state: {} });
+                } else if (!currentBuddyStillExists) {
+                    buddyToSelect = allBuddies[0];
                 }
+                
+                if (buddyToSelect?.uid !== selectedBuddy?.uid) {
+                    setSelectedBuddy(buddyToSelect);
+                }
+
             } else {
-                 setSelectedBuddy(null);
+                setSelectedBuddy(null);
             }
-        };
-        fetchBuddies();
-    }, [currentUser?.connections, location.state, navigate]);
+        });
+
+        return () => unsubscribe();
+    }, [currentUser, location.state, navigate]);
 
     useEffect(() => {
         if (!selectedBuddy || !currentUser) {
@@ -142,10 +171,6 @@ const MessagesPage: React.FC = () => {
 
     const handleDeleteChat = async () => {
         if (!currentUser || !selectedBuddy) return;
-
-        if (!window.confirm(`Are you sure you want to unfriend ${selectedBuddy.username} and delete your chat history? This action cannot be undone.`)) {
-            return;
-        }
 
         const conversationId = [currentUser.uid, selectedBuddy.uid].sort().join('-');
         const conversationRef = doc(db, "conversations", conversationId);

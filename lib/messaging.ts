@@ -14,13 +14,18 @@ export const sendMessageToBuddy = async (senderId: string, receiverId: string, c
     const conversationId = [senderId, receiverId].sort().join('-');
     const conversationRef = doc(db, "conversations", conversationId);
     const messagesColRef = collection(conversationRef, "messages");
+    
+    const messageTimestamp = Date.now();
 
     await addDoc(messagesColRef, {
         senderId,
         ...content,
-        timestamp: Date.now(),
+        timestamp: messageTimestamp,
         conversationId,
     });
     
-    await setDoc(conversationRef, { participants: [senderId, receiverId]}, { merge: true });
+    await setDoc(conversationRef, { 
+        participants: [senderId, receiverId],
+        lastMessageTimestamp: messageTimestamp,
+    }, { merge: true });
 };
