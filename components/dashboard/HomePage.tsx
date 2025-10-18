@@ -5,7 +5,8 @@ import { collection, query, where, onSnapshot, doc, updateDoc, writeBatch, array
 import { db } from '../../firebase';
 import { StudyRequest, User, StudyGroup, StudyPost } from '../../types';
 import Avatar from '../core/Avatar';
-import { UsersIcon, ChatBubbleIcon, CheckCircleIcon, XCircleIcon, SparklesIcon, LightbulbIcon } from '../icons';
+import { UsersIcon, ChatBubbleIcon, CheckCircleIcon, XCircleIcon, SparklesIcon, LightbulbIcon, ClockIcon } from '../icons';
+import StudySessionModal from './StudySessionModal';
 import { getSubjectName } from '../../lib/helpers';
 import { ALL_SUBJECTS } from '../../constants';
 import { GoogleGenAI } from "@google/genai";
@@ -49,7 +50,7 @@ const AnimatedStatCard: React.FC<{ icon: React.ReactNode; label: string; value: 
 
 
 const HomePage: React.FC = () => {
-    const { currentUser } = useAuth();
+    const { currentUser, openStudyModal, isStudyModalOpen, closeStudyModal, incrementStudyTime } = useAuth();
     const navigate = useNavigate();
     const [incomingRequests, setIncomingRequests] = useState<StudyRequest[]>([]);
     const [loadingRequests, setLoadingRequests] = useState(true);
@@ -282,14 +283,29 @@ const HomePage: React.FC = () => {
         return html;
     };
     
+    const handleEndSession = async (durationInSeconds: number) => {
+        closeStudyModal();
+        if (durationInSeconds > 10) { // Only save sessions longer than 10 seconds
+            await incrementStudyTime(Math.round(durationInSeconds));
+        }
+    };
+
     return (
         <div className="container mx-auto p-8 space-y-12">
+             <StudySessionModal isOpen={isStudyModalOpen} onClose={handleEndSession} />
              <div className="animate-fadeInDown">
                 <h1 className="text-4xl font-bold text-onBackground">Activity Hub</h1>
                 <p className="mt-2 text-lg text-onSurface">Welcome back, {currentUser?.username}! Here's your study overview.</p>
-                <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6 text-white">
+                <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-6 text-white">
                     <AnimatedStatCard icon={<UsersIcon className="w-8 h-8"/>} label="Study Buddies" value={buddies.length} colorClass="bg-gradient-to-br from-indigo-500 to-purple-600" />
                     <AnimatedStatCard icon={<UsersIcon className="w-8 h-8"/>} label="Groups" value={myGroups.length} colorClass="bg-gradient-to-br from-teal-500 to-cyan-600" />
+                    <button onClick={openStudyModal} className="p-6 rounded-xl flex items-center gap-4 bg-gradient-to-br from-yellow-400 to-amber-500 transition-transform hover:scale-105 shadow-lg hover:shadow-amber-500/30">
+                        <div className="p-3 bg-white/20 rounded-lg"><ClockIcon className="w-8 h-8"/></div>
+                        <div>
+                            <div className="text-2xl font-bold text-left">Start Studying</div>
+                            <div className="text-sm font-medium uppercase tracking-wider text-left">Begin a focus session</div>
+                        </div>
+                    </button>
                 </div>
              </div>
 

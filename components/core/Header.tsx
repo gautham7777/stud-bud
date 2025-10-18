@@ -1,17 +1,23 @@
-
-
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
-import { BookOpenIcon, UsersIcon, ChatBubbleIcon, UserCircleIcon, LogoutIcon, SearchIcon, ClipboardListIcon, XCircleIcon, CompassIcon } from '../icons';
+import { BookOpenIcon, UsersIcon, ChatBubbleIcon, UserCircleIcon, LogoutIcon, SearchIcon, ClipboardListIcon, XCircleIcon, CompassIcon, ClockIcon } from '../icons';
 import Avatar from './Avatar';
+import { db } from '../../firebase';
+import { collection, query, orderBy, limit, getDocs, doc, getDoc } from 'firebase/firestore';
+import { StudentProfile, User } from '../../types';
+import { formatDuration } from '../../lib/helpers';
 
 const Header: React.FC = () => {
-    const { currentUser, logout } = useAuth();
+    const { currentUser, logout, openStudyModal } = useAuth();
     const location = useLocation();
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const navigate = useNavigate();
+    const [isTimeDropdownOpen, setTimeDropdownOpen] = useState(false);
+    const [leaderboard, setLeaderboard] = useState<(StudentProfile & { username: string, photoURL?: string })[]>([]);
+    const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
+    const timeDropdownRef = useRef<HTMLDivElement>(null);
 
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
@@ -20,6 +26,48 @@ const Header: React.FC = () => {
             setSearchQuery('');
         }
     };
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (timeDropdownRef.current && !timeDropdownRef.current.contains(event.target as Node)) {
+                setTimeDropdownOpen(false);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
+
+    useEffect(() => {
+        const fetchLeaderboard = async () => {
+            if (!isTimeDropdownOpen) return;
+            setLoadingLeaderboard(true);
+            try {
+                const q = query(collection(db, "profiles"), orderBy("totalStudyTime", "desc"), limit(5));
+                const profilesSnapshot = await getDocs(q);
+                const profiles = profilesSnapshot.docs.map(d => d.data() as StudentProfile);
+                
+                const leaderboardData = await Promise.all(
+                    profiles.map(async (p) => {
+                        const userDoc = await getDoc(doc(db, "users", p.userId));
+                        const userData = userDoc.exists() ? userDoc.data() as User : null;
+                        return {
+                            ...p,
+                            username: userData?.username || 'Unknown',
+                            photoURL: userData?.photoURL,
+                        };
+                    })
+                );
+                
+                setLeaderboard(leaderboardData);
+            } catch (error) {
+                console.error("Error fetching leaderboard:", error);
+            } finally {
+                setLoadingLeaderboard(false);
+            }
+        };
+        
+        fetchLeaderboard();
+    }, [isTimeDropdownOpen]);
 
     const navItems = [
         { path: '/', label: 'Dashboard', icon: BookOpenIcon },
@@ -77,9 +125,43 @@ const Header: React.FC = () => {
                             <BookOpenIcon className="h-8 w-8" />
                             <span className="text-onBackground">StudyBuddy</span>
                         </Link>
-                        <div className="hidden md:block ml-10">
-                            <div className="flex items-baseline space-x-4">
+                        <div className="hidden md:flex items-center ml-10">
+                            <div className="flex items-baseline space-x-2">
                                 {mainNavLinks}
+                            </div>
+                            {/* Time Studied Dropdown */}
+                            <div className="relative ml-4" ref={timeDropdownRef}>
+                                <button
+                                    onClick={() => setTimeDropdownOpen(!isTimeDropdownOpen)}
+                                    className={`flex items-center gap-2 px-3 py-2 rounded-md font-medium transition-all duration-[260ms] text-sm ${isTimeDropdownOpen ? 'bg-surface/80 text-onBackground' : 'text-onSurface hover:bg-surface/50 hover:text-onBackground'}`}
+                                >
+                                    <ClockIcon className="h-5 w-5"/>
+                                    <span>Time Studied</span>
+                                </button>
+                                {isTimeDropdownOpen && (
+                                    <div className="absolute right-0 mt-2 w-72 bg-surface rounded-lg shadow-xl p-4 animate-fadeInUp z-20 border border-gray-700">
+                                        <button onClick={() => { openStudyModal(); setTimeDropdownOpen(false); }} className="w-full text-left p-3 rounded-lg bg-gradient-to-r from-yellow-500 to-amber-500 text-white font-semibold flex items-center gap-3 transition-transform hover:scale-105">
+                                            <ClockIcon className="h-5 w-5"/>
+                                            <span>Start a Study Session</span>
+                                        </button>
+                                        <div className="mt-4 pt-3 border-t border-gray-700">
+                                            <h4 className="font-bold text-onBackground mb-2 text-center">Top Students</h4>
+                                            {loadingLeaderboard ? <p className="text-sm text-center text-onSurface">Loading...</p> : (
+                                                <ul className="space-y-3">
+                                                    {leaderboard.map((entry) => (
+                                                        <li key={entry.userId} className="flex items-center justify-between text-sm">
+                                                            <div className="flex items-center gap-2">
+                                                                <Avatar user={{uid: entry.userId, username: entry.username, email: '', photoURL: entry.photoURL}} className="w-6 h-6"/>
+                                                                <span className="font-semibold text-onSurface">{entry.username}</span>
+                                                            </div>
+                                                            <span className="font-bold text-amber-400">{formatDuration(entry.totalStudyTime || 0)}</span>
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -115,6 +197,10 @@ const Header: React.FC = () => {
                     <div className="md:hidden animate-fadeInUp pb-3">
                         <div className="flex flex-col space-y-2 pt-2">
                             {mobileNavLinks}
+                           <button onClick={() => { openStudyModal(); setIsMobileMenuOpen(false); }} className="flex items-center gap-2 px-3 py-2 rounded-md text-base font-medium text-onSurface hover:bg-surface/50 hover:text-onBackground bg-yellow-500/20">
+                                <ClockIcon className="h-5 w-5 text-yellow-400" />
+                                <span>Start Study Session</span>
+                           </button>
                             <button onClick={logout} className="flex items-center gap-2 px-3 py-2 rounded-md text-base font-medium text-onSurface hover:bg-surface/50 hover:text-onBackground">
                                 <LogoutIcon className="h-5 w-5" />
                                 <span>Logout</span>

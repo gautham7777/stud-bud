@@ -1,6 +1,6 @@
-import React, { useState, useContext, createContext, useMemo, useEffect } from 'react';
+import React, { useState, useContext, createContext, useMemo, useEffect, useCallback } from 'react';
 import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
-import { doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, updateDoc, increment } from 'firebase/firestore';
 import { auth, db } from '../../firebase';
 import { User, StudentProfile, LearningStyle } from '../../types';
 import { sanitizeProfile } from '../../lib/helpers';
@@ -15,6 +15,10 @@ interface AuthContextType {
     logout: () => void;
     signup: (email: string, username: string, pass: string) => Promise<void>;
     updateProfile: (profile: Partial<StudentProfile>) => Promise<void>;
+    isStudyModalOpen: boolean;
+    openStudyModal: () => void;
+    closeStudyModal: () => void;
+    incrementStudyTime: (seconds: number) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>(null!);
@@ -23,6 +27,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [currentUserProfile, setCurrentUserProfile] = useState<StudentProfile | null>(null);
     const [loading, setLoading] = useState(true);
+    const [isStudyModalOpen, setIsStudyModalOpen] = useState(false);
+
+    const openStudyModal = useCallback(() => setIsStudyModalOpen(true), []);
+    const closeStudyModal = useCallback(() => setIsStudyModalOpen(false), []);
+
 
     useEffect(() => {
         let userUnsubscribe: () => void = () => {};
@@ -79,15 +88,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
     }, []);
 
-    const login = async (email: string, pass: string) => {
+    const login = useCallback(async (email: string, pass: string) => {
         await signInWithEmailAndPassword(auth, email, pass);
-    };
+    }, []);
 
-    const logout = () => {
+    const logout = useCallback(() => {
         signOut(auth);
-    };
+    }, []);
 
-    const signup = async (email: string, username: string, pass: string) => {
+    const signup = useCallback(async (email: string, username: string, pass: string) => {
         const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
         const firebaseUser = userCredential.user;
 
@@ -101,11 +110,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             availability: [],
             badges: [],
             quizWins: 0,
+            totalStudyTime: 0,
         };
         await setDoc(doc(db, "profiles", firebaseUser.uid), newProfile);
-    };
+    }, []);
     
-     const checkForBadges = (profile: StudentProfile): string[] => {
+     const checkForBadges = useCallback((profile: StudentProfile): string[] => {
         const newBadges: string[] = [];
         const isComplete = profile.bio && 
                            profile.learningStyle &&
@@ -115,9 +125,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             newBadges.push("Profile Pro");
         }
         return newBadges;
-    };
+    }, []);
 
-    const updateProfile = async (updatedProfile: Partial<StudentProfile>) => {
+    const updateProfile = useCallback(async (updatedProfile: Partial<StudentProfile>) => {
         if (!currentUser || !currentUserProfile) throw new Error("Not authenticated");
         
         const newProfileData = { ...currentUserProfile, ...updatedProfile };
@@ -130,11 +140,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         
         const profileDocRef = doc(db, "profiles", currentUser.uid);
         await setDoc(profileDocRef, finalProfile, { merge: true });
-    };
+    }, [currentUser, currentUserProfile, checkForBadges]);
+
+    const incrementStudyTime = useCallback(async (seconds: number) => {
+        if (!currentUser) throw new Error("Not authenticated");
+        if (seconds <= 0) return;
+
+        const profileDocRef = doc(db, "profiles", currentUser.uid);
+        await updateDoc(profileDocRef, {
+            totalStudyTime: increment(seconds)
+        });
+    }, [currentUser]);
 
 
-    const value = useMemo(() => ({ currentUser, currentUserProfile, loading, login, logout, signup, updateProfile }), 
-        [currentUser, currentUserProfile, loading]
+    const value = useMemo(() => ({ 
+        currentUser, currentUserProfile, loading, login, logout, signup, updateProfile, 
+        isStudyModalOpen, openStudyModal, closeStudyModal, incrementStudyTime
+    }), 
+        [currentUser, currentUserProfile, loading, login, logout, signup, updateProfile, isStudyModalOpen, openStudyModal, closeStudyModal, incrementStudyTime]
     );
 
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

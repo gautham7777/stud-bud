@@ -294,7 +294,7 @@ const GroupPage: React.FC = () => {
     return (
         <div className="container mx-auto p-8">
             <ScheduleSessionModal isOpen={isScheduleModalOpen} onClose={() => setScheduleModalOpen(false)} onSchedule={handleScheduleSession} />
-            <Modal isOpen={!!viewedImageUrl} onClose={() => setViewedImageUrl(null)} className="max-w-4xl p-0 bg-transparent border-none shadow-none" showCloseButton={false}>
+            <Modal isOpen={!!viewedImageUrl} onClose={() => setViewedImageUrl(null)} className="max-w-4xl p-0 bg-transparent border-none shadow-none flex justify-center items-center" showCloseButton={false}>
                 {viewedImageUrl && (
                     <img src={viewedImageUrl} alt="Full screen view" className="max-h-[90vh] max-w-[90vw] object-contain rounded-lg" />
                 )}

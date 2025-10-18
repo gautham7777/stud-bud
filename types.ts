@@ -27,6 +27,7 @@ export interface StudentProfile {
   availability: string[];
   badges?: string[];
   quizWins?: number;
+  totalStudyTime?: number; // in seconds
 }
 
 export interface Subject {

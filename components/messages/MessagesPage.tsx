@@ -152,31 +152,39 @@ const MessagesPage: React.FC = () => {
         const messagesColRef = collection(conversationRef, "messages");
 
         try {
-            const batch = writeBatch(db);
+            // Batch delete messages to handle >500 messages per transaction limit
             const messagesSnapshot = await getDocs(messagesColRef);
-            messagesSnapshot.forEach(doc => {
-                batch.delete(doc.ref);
-            });
-            
-            batch.delete(conversationRef);
+            if (!messagesSnapshot.empty) {
+                const batchSize = 500;
+                for (let i = 0; i < messagesSnapshot.docs.length; i += batchSize) {
+                    const batch = writeBatch(db);
+                    const chunk = messagesSnapshot.docs.slice(i, i + batchSize);
+                    chunk.forEach(doc => batch.delete(doc.ref));
+                    await batch.commit();
+                }
+            }
 
-            // Also remove buddy connection
+            // Final batch for conversation doc and user connections
+            const finalBatch = writeBatch(db);
+            
+            // Delete conversation document
+            finalBatch.delete(conversationRef);
+
+            // Remove buddy connection from both users
             const currentUserRef = doc(db, "users", currentUser.uid);
             const selectedBuddyRef = doc(db, "users", selectedBuddy.uid);
 
-            batch.update(currentUserRef, { connections: arrayRemove(selectedBuddy.uid) });
-            batch.update(selectedBuddyRef, { connections: arrayRemove(currentUser.uid) });
+            finalBatch.update(currentUserRef, { connections: arrayRemove(selectedBuddy.uid) });
+            finalBatch.update(selectedBuddyRef, { connections: arrayRemove(currentUser.uid) });
             
-            await batch.commit();
+            await finalBatch.commit();
 
+            // Update local state for a smooth UI transition
             setMessages([]);
-            
             const remainingBuddies = buddies.filter(b => b.uid !== selectedBuddy.uid);
-            if (remainingBuddies.length > 0) {
-                setSelectedBuddy(remainingBuddies[0]);
-            } else {
-                setSelectedBuddy(null);
-            }
+            setBuddies(remainingBuddies); // Update the buddies list
+            setSelectedBuddy(remainingBuddies.length > 0 ? remainingBuddies[0] : null);
+            
         } catch (error) {
             console.error("Error deleting chat:", error);
             alert("Failed to delete chat. Please try again.");
@@ -269,7 +277,7 @@ const MessagesPage: React.FC = () => {
                     </div>
                 )}
             </div>
-            <Modal isOpen={!!viewedImageUrl} onClose={() => setViewedImageUrl(null)} className="max-w-4xl p-0 bg-transparent border-none shadow-none" showCloseButton={false}>
+            <Modal isOpen={!!viewedImageUrl} onClose={() => setViewedImageUrl(null)} className="max-w-4xl p-0 bg-transparent border-none shadow-none flex justify-center items-center" showCloseButton={false}>
                 {viewedImageUrl && (
                     <img src={viewedImageUrl} alt="Full screen view" className="max-h-[90vh] max-w-[90vw] object-contain rounded-lg" />
                 )}
