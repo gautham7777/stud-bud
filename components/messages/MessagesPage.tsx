@@ -1,8 +1,9 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
-import * as ReactRouterDOM from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
-import { collection, query, orderBy, onSnapshot, doc, getDoc, writeBatch, getDocs } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc, getDoc, writeBatch, getDocs, updateDoc, arrayRemove } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../../firebase';
 import { User, Message } from '../../types';
@@ -12,8 +13,8 @@ import { PaperClipIcon, TrashIcon } from '../icons';
 
 const MessagesPage: React.FC = () => {
     const { currentUser } = useAuth();
-    const location = ReactRouterDOM.useLocation();
-    const navigate = ReactRouterDOM.useNavigate();
+    const location = useLocation();
+    const navigate = useNavigate();
     const [buddies, setBuddies] = useState<User[]>([]);
     const [selectedBuddy, setSelectedBuddy] = useState<User | null>(null);
     const [messages, setMessages] = useState<Message[]>([]);
@@ -139,6 +140,10 @@ const MessagesPage: React.FC = () => {
     const handleDeleteChat = async () => {
         if (!currentUser || !selectedBuddy) return;
 
+        if (!window.confirm(`Are you sure you want to unfriend ${selectedBuddy.username} and delete your chat history? This action cannot be undone.`)) {
+            return;
+        }
+
         const conversationId = [currentUser.uid, selectedBuddy.uid].sort().join('-');
         const conversationRef = doc(db, "conversations", conversationId);
         const messagesColRef = collection(conversationRef, "messages");
@@ -151,6 +156,13 @@ const MessagesPage: React.FC = () => {
             });
             
             batch.delete(conversationRef);
+
+            // Also remove buddy connection
+            const currentUserRef = doc(db, "users", currentUser.uid);
+            const selectedBuddyRef = doc(db, "users", selectedBuddy.uid);
+
+            batch.update(currentUserRef, { connections: arrayRemove(selectedBuddy.uid) });
+            batch.update(selectedBuddyRef, { connections: arrayRemove(currentUser.uid) });
             
             await batch.commit();
 
@@ -208,7 +220,7 @@ const MessagesPage: React.FC = () => {
                                         <Avatar user={selectedBuddy} className="w-10 h-10" />
                                         <h2 className="text-xl font-semibold text-onBackground">{selectedBuddy.username}</h2>
                                     </div>
-                                     <button onClick={handleDeleteChat} className="p-2 text-danger/70 hover:text-danger hover:bg-danger/20 rounded-full transition-colors" title="Delete Chat History">
+                                     <button onClick={handleDeleteChat} className="p-2 text-danger/70 hover:text-danger hover:bg-danger/20 rounded-full transition-colors" title="Unfriend & Delete Chat">
                                         <TrashIcon className="w-5 h-5" />
                                     </button>
                                 </div>

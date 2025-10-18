@@ -19,6 +19,7 @@ export const sanitizeGroup = (data: any, id: string): StudyGroup => ({
     subjectId: data.subjectId || 0,
     subjectName: data.subjectName || 'Unknown',
     memberIds: data.memberIds || [],
+    scheduledSession: data.scheduledSession || null,
 });
 
 export const getSubjectName = (id: number): string => ALL_SUBJECTS.find(s => s.id === id)?.name || 'Unknown';

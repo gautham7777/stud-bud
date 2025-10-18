@@ -1,10 +1,16 @@
-
 import React, { useState } from 'react';
-import * as ReactRouterDOM from 'react-router-dom';
+import { useNavigate, Navigate } from 'react-router-dom';
 import { useAuth } from './AuthProvider';
 import { BookOpenIcon, UsersIcon, ChatBubbleIcon, ClipboardListIcon, SparklesIcon, PencilIcon, CheckCircleIcon, ShieldCheckIcon } from '../icons';
 
 const AuthPage: React.FC = () => {
+    const { login, signup, currentUser } = useAuth();
+    const navigate = useNavigate();
+    
+    if (currentUser) {
+        return <Navigate to="/" replace />;
+    }
+
     const [isLogin, setIsLogin] = useState(true);
     const [email, setEmail] = useState('');
     const [username, setUsername] = useState('');
@@ -13,8 +19,6 @@ const AuthPage: React.FC = () => {
     const [error, setError] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isInputFocused, setIsInputFocused] = useState(false);
-    const { login, signup } = useAuth();
-    const navigate = ReactRouterDOM.useNavigate();
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();

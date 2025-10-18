@@ -34,6 +34,12 @@ export interface Subject {
   name: string;
 }
 
+export interface ScheduledSession {
+  topic: string;
+  scheduledAt: number; // timestamp
+  scheduledBy: string; // username
+}
+
 export interface StudyGroup {
   id: string;
   name: string;
@@ -42,6 +48,7 @@ export interface StudyGroup {
   subjectId: number;
   subjectName: string;
   memberIds: string[];
+  scheduledSession?: ScheduledSession | null;
 }
 
 export interface Message {
@@ -122,5 +129,29 @@ export interface UserMark {
   subjectId: number;
   subjectName: string;
   marks: string;
+  createdAt: number;
+}
+
+export interface DiscoverPost {
+  id: string;
+  creatorId: string;
+  creatorUsername: string;
+  creatorPhotoURL?: string;
+  text?: string;
+  mediaUrl?: string;
+  mediaType?: 'image';
+  likes: string[]; // Array of user UIDs who liked the post
+  commentCount: number;
+  createdAt: number;
+}
+
+export interface DiscoverComment {
+  id:string;
+  postId: string;
+  creatorId: string;
+  // FIX: Corrected the type for 'creatorUsername' from the invalid 'aistudio' to 'string'.
+  creatorUsername: string;
+  creatorPhotoURL?: string;
+  text: string;
   createdAt: number;
 }

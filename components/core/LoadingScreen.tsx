@@ -17,12 +17,6 @@ const LoadingScreen: React.FC = () => {
                     ))}
                 </h1>
             </div>
-            <div className="absolute bottom-20 w-full max-w-sm px-4">
-                <div className="w-full bg-surface rounded-full h-2.5 overflow-hidden">
-                    <div className="bg-gradient-to-r from-primary to-secondary h-2.5 rounded-full" style={{ animation: `progress-bar-load 3s ease-out forwards` }}></div>
-                </div>
-                <p className="text-center mt-2 text-onSurface/70">Initializing connections...</p>
-            </div>
         </div>
     );
 };

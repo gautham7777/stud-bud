@@ -1,6 +1,7 @@
 
+
 import React from 'react';
-import * as ReactRouterDOM from 'react-router-dom';
+import { Navigate } from 'react-router-dom';
 import { useAuth } from './AuthProvider';
 import LoadingSpinner from '../core/LoadingSpinner';
 
@@ -10,7 +11,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
         return <LoadingSpinner />;
     }
     if (!currentUser) {
-        return <ReactRouterDOM.Navigate to="/auth" />;
+        return <Navigate to="/auth" />;
     }
     return <>{children}</>;
 };

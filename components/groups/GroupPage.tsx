@@ -1,23 +1,24 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import * as ReactRouterDOM from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { doc, onSnapshot, getDoc, updateDoc, collection, query, orderBy, addDoc, writeBatch, getDocs, arrayRemove, arrayUnion, setDoc } from 'firebase/firestore';
 import { db, storage } from '../../firebase';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
-import { StudyGroup, User, SharedContent, Message } from '../../types';
+import { StudyGroup, User, SharedContent, Message, ScheduledSession } from '../../types';
 import { sanitizeGroup } from '../../lib/helpers';
 import LoadingSpinner from '../core/LoadingSpinner';
 import Avatar from '../core/Avatar';
 import Whiteboard from '../Whiteboard';
 import QuizComponent from './QuizComponent';
-import { PencilIcon, CheckCircleIcon, XCircleIcon, UsersIcon, ChevronDownIcon, PlusCircleIcon, TrashIcon, PaperClipIcon } from '../icons';
+import ScheduleSessionModal from './ScheduleSessionModal';
+import { PencilIcon, CheckCircleIcon, XCircleIcon, UsersIcon, ChevronDownIcon, PlusCircleIcon, TrashIcon, PaperClipIcon, CalendarIcon } from '../icons';
 import { isMessageInappropriate } from '../../lib/moderation';
 
 
 const GroupPage: React.FC = () => {
-    const { id } = ReactRouterDOM.useParams();
+    const { id } = useParams();
     const { currentUser } = useAuth();
-    const navigate = ReactRouterDOM.useNavigate();
+    const navigate = useNavigate();
     const [group, setGroup] = useState<StudyGroup | null>(null);
     const [members, setMembers] = useState<User[]>([]);
     const [sharedContent, setSharedContent] = useState<SharedContent | null>(null);
@@ -34,12 +35,14 @@ const GroupPage: React.FC = () => {
     const [loadingBuddies, setLoadingBuddies] = useState(true);
     const imageInputRef = useRef<HTMLInputElement>(null);
     const [isUploadingImage, setIsUploadingImage] = useState(false);
+    const [isScheduleModalOpen, setScheduleModalOpen] = useState(false);
 
     if (!id) {
         return <div className="container mx-auto p-8 animate-fadeInUp text-center"><h1 className="text-2xl">Group Not Found</h1><p>The link may be broken or the group may have been deleted.</p></div>;
     }
 
     const contentDocRef = useMemo(() => doc(db, "studyGroups", id, "content", "shared"), [id]);
+    const groupDocRef = useMemo(() => doc(db, "studyGroups", id), [id]);
     
     useEffect(() => {
         setLoading(true);
@@ -52,7 +55,6 @@ const GroupPage: React.FC = () => {
             }
         };
 
-        const groupDocRef = doc(db, "studyGroups", id);
         const unsubGroup = onSnapshot(groupDocRef, (docSnap) => {
             if (docSnap.exists()) {
                 const groupData = sanitizeGroup(docSnap.data(), docSnap.id);
@@ -88,7 +90,7 @@ const GroupPage: React.FC = () => {
             unsubContent();
             unsubMessages();
         };
-    }, [id, contentDocRef]);
+    }, [id, contentDocRef, groupDocRef]);
     
     useEffect(() => {
         if (!group) return;
@@ -221,15 +223,13 @@ const GroupPage: React.FC = () => {
             setIsEditingName(false);
             return;
         }
-        const groupDocRef = doc(db, "studyGroups", id);
         await updateDoc(groupDocRef, { name: newName.trim() });
         setIsEditingName(false);
     };
 
     const handleInviteBuddy = async (buddyId: string) => {
         if (!id) return;
-        const groupRef = doc(db, "studyGroups", id);
-        await updateDoc(groupRef, {
+        await updateDoc(groupDocRef, {
             memberIds: arrayUnion(buddyId)
         });
         setIsInviteDropdownOpen(false);
@@ -237,7 +237,6 @@ const GroupPage: React.FC = () => {
 
     const handleLeaveGroup = async () => {
         if (!currentUser || !group) return;
-        const groupDocRef = doc(db, "studyGroups", id);
         await updateDoc(groupDocRef, {
             memberIds: arrayRemove(currentUser.uid)
         });
@@ -248,28 +247,33 @@ const GroupPage: React.FC = () => {
         if (!group || !currentUser || group.creatorId !== currentUser.uid) return;
         try {
             const batch = writeBatch(db);
-
-            // Delete messages subcollection
             const messagesQuery = query(collection(db, "studyGroups", group.id, "messages"));
             const messagesSnapshot = await getDocs(messagesQuery);
             messagesSnapshot.forEach(doc => batch.delete(doc.ref));
-
-            // Delete content subcollection document
-            const contentDocRef = doc(db, "studyGroups", group.id, "content", "shared");
             batch.delete(contentDocRef);
-            
-            // Delete group document itself
-            const groupDocRef = doc(db, "studyGroups", group.id);
             batch.delete(groupDocRef);
-
             await batch.commit();
-
             navigate('/groups');
         } catch (error) {
             console.error("Error deleting group:", error);
             alert("Failed to delete group.");
         }
     }
+    
+    const handleScheduleSession = async (topic: string, scheduledAt: number) => {
+        if (!currentUser) return;
+        const session: ScheduledSession = {
+            topic,
+            scheduledAt,
+            scheduledBy: currentUser.username,
+        };
+        await updateDoc(groupDocRef, { scheduledSession: session });
+        setScheduleModalOpen(false);
+    };
+
+    const handleClearSession = async () => {
+        await updateDoc(groupDocRef, { scheduledSession: null });
+    };
 
     if (loading) return <LoadingSpinner />;
     if (!group) return <div className="container mx-auto p-8 animate-fadeInUp text-center"><h1 className="text-2xl">Group not found.</h1></div>
@@ -277,9 +281,12 @@ const GroupPage: React.FC = () => {
 
     const isCreator = currentUser?.uid === group.creatorId;
     const buddiesToInvite = buddies.filter(buddy => !group.memberIds.includes(buddy.uid));
+    const showPinnedSession = group.scheduledSession && group.scheduledSession.scheduledAt > Date.now();
 
     return (
         <div className="container mx-auto p-8">
+            <ScheduleSessionModal isOpen={isScheduleModalOpen} onClose={() => setScheduleModalOpen(false)} onSchedule={handleScheduleSession} />
+
             {isEditingName ? (
                 <div className="flex items-center gap-2 mb-2">
                     <input 
@@ -305,6 +312,20 @@ const GroupPage: React.FC = () => {
                 </div>
             )}
             <p className="text-onSurface mb-6">{group.description}</p>
+            
+            {showPinnedSession && (
+                <div className="bg-primary/20 border border-primary/50 p-4 rounded-lg mb-8 animate-fadeInDown flex items-center justify-between">
+                    <div>
+                        <h3 className="font-bold text-primary flex items-center gap-2"><CalendarIcon /> Upcoming Session</h3>
+                        <p className="font-semibold text-onBackground mt-1">{group.scheduledSession!.topic}</p>
+                        <p className="text-sm text-onSurface">{new Date(group.scheduledSession!.scheduledAt).toLocaleString()}</p>
+                    </div>
+                    {(isCreator || group.scheduledSession?.scheduledBy === currentUser?.username) && (
+                        <button onClick={handleClearSession} className="text-xs text-danger hover:underline">Clear</button>
+                    )}
+                </div>
+            )}
+
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                  <div className="lg:col-span-2 flex flex-col gap-8">
                      <div className="w-full bg-surface p-6 rounded-lg shadow-md border border-gray-700">
@@ -382,22 +403,27 @@ const GroupPage: React.FC = () => {
                             )}
                          </div>
                          <div className="relative">
-                            <div className="flex gap-2">
-                                <button 
-                                    onClick={() => setIsMembersListVisible(!isMembersListVisible)} 
-                                    className="flex-1 text-center py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors font-semibold flex items-center justify-center gap-2"
-                                >
-                                    <UsersIcon className="w-5 h-5" />
-                                    <span>{isMembersListVisible ? 'Hide Members' : 'View All'}</span>
-                                    <ChevronDownIcon className={`w-5 h-5 transition-transform ${isMembersListVisible ? 'rotate-180' : ''}`} />
+                            <div className="grid grid-cols-1 gap-2">
+                                <button onClick={() => setScheduleModalOpen(true)} className="w-full text-center py-2 bg-secondary/80 hover:bg-secondary rounded-lg transition-colors font-semibold flex items-center justify-center gap-2">
+                                    <CalendarIcon className="w-5 h-5" /> Schedule Session
                                 </button>
-                                <button 
-                                    onClick={() => setIsInviteDropdownOpen(!isInviteDropdownOpen)}
-                                    className="flex-1 text-center py-2 bg-primary/80 hover:bg-primary rounded-lg transition-colors font-semibold flex items-center justify-center gap-2"
-                                >
-                                <PlusCircleIcon className="w-5 h-5"/>
-                                Invite
-                                </button>
+                                <div className="flex gap-2">
+                                    <button 
+                                        onClick={() => setIsMembersListVisible(!isMembersListVisible)} 
+                                        className="flex-1 text-center py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors font-semibold flex items-center justify-center gap-2"
+                                    >
+                                        <UsersIcon className="w-5 h-5" />
+                                        <span>{isMembersListVisible ? 'Hide' : 'View All'}</span>
+                                        <ChevronDownIcon className={`w-5 h-5 transition-transform ${isMembersListVisible ? 'rotate-180' : ''}`} />
+                                    </button>
+                                    <button 
+                                        onClick={() => setIsInviteDropdownOpen(!isInviteDropdownOpen)}
+                                        className="flex-1 text-center py-2 bg-primary/80 hover:bg-primary rounded-lg transition-colors font-semibold flex items-center justify-center gap-2"
+                                    >
+                                    <PlusCircleIcon className="w-5 h-5"/>
+                                    Invite
+                                    </button>
+                                </div>
                             </div>
 
                             {isCreator && (

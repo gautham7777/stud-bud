@@ -1,6 +1,7 @@
 
+
 import React, { useState, useEffect } from 'react';
-import * as ReactRouterDOM from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { User, StudentProfile, StudyMaterial } from '../../types';
@@ -9,7 +10,7 @@ import LoadingSpinner from '../core/LoadingSpinner';
 import Avatar from '../core/Avatar';
 
 const UserProfilePage: React.FC = () => {
-    const { username } = ReactRouterDOM.useParams<{ username: string }>();
+    const { username } = useParams<{ username: string }>();
     const [user, setUser] = useState<User | null>(null);
     const [profile, setProfile] = useState<StudentProfile | null>(null);
     const [materials, setMaterials] = useState<StudyMaterial[]>([]);

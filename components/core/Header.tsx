@@ -1,16 +1,17 @@
 
+
 import React, { useState } from 'react';
-import * as ReactRouterDOM from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
-import { BookOpenIcon, UsersIcon, ChatBubbleIcon, UserCircleIcon, LogoutIcon, SearchIcon, ClipboardListIcon, XCircleIcon } from '../icons';
+import { BookOpenIcon, UsersIcon, ChatBubbleIcon, UserCircleIcon, LogoutIcon, SearchIcon, ClipboardListIcon, XCircleIcon, CompassIcon } from '../icons';
 import Avatar from './Avatar';
 
 const Header: React.FC = () => {
     const { currentUser, logout } = useAuth();
-    const location = ReactRouterDOM.useLocation();
+    const location = useLocation();
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
-    const navigate = ReactRouterDOM.useNavigate();
+    const navigate = useNavigate();
 
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
@@ -25,6 +26,7 @@ const Header: React.FC = () => {
         { path: '/groups', label: 'Groups', icon: UsersIcon },
         { path: '/requests', label: 'Requests', icon: ClipboardListIcon },
         { path: '/messages', label: 'Messages', icon: ChatBubbleIcon },
+        { path: '/discover', label: 'Discover', icon: CompassIcon },
     ];
     
     const profileItem = { path: '/profile', label: 'Profile', icon: UserCircleIcon };
@@ -32,7 +34,7 @@ const Header: React.FC = () => {
     if (!currentUser) return null;
     
     const mainNavLinks = navItems.map(item => (
-        <ReactRouterDOM.Link
+        <Link
             key={item.path}
             to={item.path}
             onClick={() => isMobileMenuOpen && setIsMobileMenuOpen(false)}
@@ -40,22 +42,22 @@ const Header: React.FC = () => {
         >
             <item.icon className="h-5 w-5" />
             <span>{item.label}</span>
-        </ReactRouterDOM.Link>
+        </Link>
     ));
 
     const profileNavLink = (
-        <ReactRouterDOM.Link
+        <Link
             to={profileItem.path}
             onClick={() => isMobileMenuOpen && setIsMobileMenuOpen(false)}
             className={`flex items-center gap-2 px-3 py-2 rounded-md font-medium transition-all duration-[260ms] text-sm ${location.pathname === profileItem.path ? 'bg-gradient-to-r from-indigo-700 to-indigo-500 text-onPrimary shadow-md' : 'text-onSurface hover:bg-surface/50 hover:text-onBackground'}`}
         >
             <Avatar user={currentUser} className="h-5 w-5" />
             <span>{profileItem.label}</span>
-        </ReactRouterDOM.Link>
+        </Link>
     );
 
     const mobileNavLinks = [...navItems, profileItem].map(item => (
-         <ReactRouterDOM.Link
+         <Link
             key={item.path}
             to={item.path}
             onClick={() => isMobileMenuOpen && setIsMobileMenuOpen(false)}
@@ -63,7 +65,7 @@ const Header: React.FC = () => {
         >
             {item.label === 'Profile' ? <Avatar user={currentUser} className="h-5 w-5" /> : <item.icon className="h-5 w-5" />}
             <span>{item.label}</span>
-        </ReactRouterDOM.Link>
+        </Link>
     ));
 
     return (
@@ -71,10 +73,10 @@ const Header: React.FC = () => {
             <nav className="container mx-auto px-4 sm:px-6 lg:px-8">
                 <div className="flex items-center justify-between h-16">
                     <div className="flex items-center">
-                        <ReactRouterDOM.Link to="/" className="flex-shrink-0 flex items-center gap-2 text-primary font-bold text-xl transition-transform hover:scale-105">
+                        <Link to="/" className="flex-shrink-0 flex items-center gap-2 text-primary font-bold text-xl transition-transform hover:scale-105">
                             <BookOpenIcon className="h-8 w-8" />
                             <span className="text-onBackground">StudyBuddy</span>
-                        </ReactRouterDOM.Link>
+                        </Link>
                         <div className="hidden md:block ml-10">
                             <div className="flex items-baseline space-x-4">
                                 {mainNavLinks}

@@ -1,20 +1,56 @@
-
 import React, { useState, useEffect, useRef } from 'react';
-import * as ReactRouterDOM from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { collection, query, where, onSnapshot, doc, updateDoc, writeBatch, arrayUnion, getDocs, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
-import { StudyRequest, User, StudyGroup } from '../../types';
+import { StudyRequest, User, StudyGroup, StudyPost } from '../../types';
 import Avatar from '../core/Avatar';
-import { UsersIcon, ChatBubbleIcon, CheckCircleIcon, XCircleIcon, SparklesIcon } from '../icons';
+import { UsersIcon, ChatBubbleIcon, CheckCircleIcon, XCircleIcon, SparklesIcon, LightbulbIcon } from '../icons';
 import { getSubjectName } from '../../lib/helpers';
 import { ALL_SUBJECTS } from '../../constants';
 import { GoogleGenAI } from "@google/genai";
 import { sendMessageToBuddy } from '../../lib/messaging';
 
+const AnimatedStatCard: React.FC<{ icon: React.ReactNode; label: string; value: number; colorClass: string }> = ({ icon, label, value, colorClass }) => {
+    const [count, setCount] = useState(0);
+
+    useEffect(() => {
+        if (value === 0) {
+            setCount(0);
+            return;
+        }
+        const duration = 1000;
+        let start = 0;
+        const end = value;
+        if (start === end) return;
+
+        let startTimestamp: number | null = null;
+        const step = (timestamp: number) => {
+            if (!startTimestamp) startTimestamp = timestamp;
+            const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+            setCount(Math.floor(progress * (end - start) + start));
+            if (progress < 1) {
+                window.requestAnimationFrame(step);
+            }
+        };
+        window.requestAnimationFrame(step);
+    }, [value]);
+    
+    return (
+        <div className={`p-6 rounded-xl flex items-center gap-4 ${colorClass}`}>
+            <div className="p-3 bg-white/20 rounded-lg">{icon}</div>
+            <div>
+                <div className="text-4xl font-bold">{count}</div>
+                <div className="text-sm font-medium uppercase tracking-wider">{label}</div>
+            </div>
+        </div>
+    );
+};
+
+
 const HomePage: React.FC = () => {
     const { currentUser } = useAuth();
-    const navigate = ReactRouterDOM.useNavigate();
+    const navigate = useNavigate();
     const [incomingRequests, setIncomingRequests] = useState<StudyRequest[]>([]);
     const [loadingRequests, setLoadingRequests] = useState(true);
     const [buddies, setBuddies] = useState<User[]>([]);
@@ -31,6 +67,11 @@ const HomePage: React.FC = () => {
     const [isBuddyDropdownOpen, setIsBuddyDropdownOpen] = useState(false);
     const planDropdownRef = useRef<HTMLDivElement>(null);
     const buddyDropdownRef = useRef<HTMLDivElement>(null);
+
+    // AI Doubt Clearer State
+    const [doubt, setDoubt] = useState('');
+    const [answer, setAnswer] = useState('');
+    const [isAnswering, setIsAnswering] = useState(false);
 
     
     useEffect(() => {
@@ -137,8 +178,39 @@ const HomePage: React.FC = () => {
                 }
                 
                 await batch.commit();
-                navigate('/messages', { state: { selectedBuddyId: request.fromUserId } });
 
+                // Generate and send welcome message
+                try {
+                    const postDocRef = doc(db, "studyPosts", request.postId);
+                    const postSnap = await getDoc(postDocRef);
+
+                    let welcomeMessage = "Hey! I'm looking forward to studying with you!"; // Default message
+
+                    if (postSnap.exists()) {
+                        const postData = postSnap.data() as StudyPost;
+                        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+                        const prompt = `A student accepted my study request about "${postData.description}". Write a short, friendly, and enthusiastic welcome message (around 20-30 words) to send them. Sound excited to start studying together.`;
+                        
+                        const geminiResponse = await ai.models.generateContent({
+                            model: 'gemini-2.5-flash',
+                            contents: prompt,
+                        });
+                        
+                        if (geminiResponse.text) {
+                            welcomeMessage = geminiResponse.text;
+                        }
+                    }
+                    
+                    // Send the message
+                    await sendMessageToBuddy(currentUser.uid, request.fromUserId, { text: welcomeMessage });
+
+                } catch (aiError) {
+                    console.error("Error generating or sending AI message, sending default:", aiError);
+                    // Fallback to sending the default message if AI fails
+                    await sendMessageToBuddy(currentUser.uid, request.fromUserId, { text: "Hey! I'm looking forward to studying with you!" });
+                }
+                
+                navigate('/messages', { state: { selectedBuddyId: request.fromUserId } });
             }
         } catch (error) {
             console.error("Error updating request: ", error);
@@ -177,38 +249,73 @@ const HomePage: React.FC = () => {
         setSendSuccessMessage(`Plan sent to ${buddies.find(b => b.uid === selectedBuddyToSend)?.username}!`);
         setTimeout(() => setSendSuccessMessage(''), 3000);
     };
+
+    const handleClearDoubt = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!doubt.trim()) return;
+        setIsAnswering(true);
+        setAnswer('');
+        try {
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+            const prompt = `You are an expert tutor. Your goal is to help students understand concepts clearly. Please answer the following question in a simple, clear, and encouraging way. Use markdown for formatting if it helps with clarity (like lists or bolding key terms).\n\nQuestion: "${doubt}"`;
+            const geminiResponse = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: prompt,
+            });
+            setAnswer(geminiResponse.text);
+        } catch (error) {
+            console.error("Error clearing doubt:", error);
+            setAnswer("Sorry, I couldn't find an answer right now. Please try rephrasing or ask again later.");
+        } finally {
+            setIsAnswering(false);
+        }
+    };
+    
+     const formatAIResponse = (text: string) => {
+        let html = text
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*(.*?)\*/g, '<em>$1</em>')
+            .replace(/`([^`]+)`/g, '<code class="bg-gray-700 rounded px-1 py-0.5">$1</code>')
+            .replace(/^- (.*)/gm, '<li class="ml-4 list-disc">$1</li>')
+            .replace(/^(1\.|2\.|3\.|4\.|5\.) (.*)/gm, '<li class="ml-4 list-decimal">$2</li>')
+            .replace(/\n/g, '<br />');
+        return html;
+    };
     
     return (
-        <div className="container mx-auto p-8">
-             <div className="flex justify-between items-center mb-8">
-                <div>
-                    <h1 className="text-4xl font-bold text-onBackground">Dashboard</h1>
-                    <p className="mt-2 text-lg text-onSurface">Here's your study overview.</p>
+        <div className="container mx-auto p-8 space-y-12">
+             <div className="animate-fadeInDown">
+                <h1 className="text-4xl font-bold text-onBackground">Activity Hub</h1>
+                <p className="mt-2 text-lg text-onSurface">Welcome back, {currentUser?.username}! Here's your study overview.</p>
+                <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6 text-white">
+                    <AnimatedStatCard icon={<UsersIcon className="w-8 h-8"/>} label="Study Buddies" value={buddies.length} colorClass="bg-gradient-to-br from-indigo-500 to-purple-600" />
+                    <AnimatedStatCard icon={<UsersIcon className="w-8 h-8"/>} label="Groups" value={myGroups.length} colorClass="bg-gradient-to-br from-teal-500 to-cyan-600" />
                 </div>
              </div>
-             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="bg-surface/50 border border-gray-700 p-6 rounded-lg shadow-lg lg:col-span-2">
+
+             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-surface/50 border border-gray-700 p-6 rounded-lg shadow-lg">
                     <h2 className="text-xl font-semibold flex items-center gap-2 text-onBackground"><UsersIcon/> My Buddies</h2>
                     {loadingBuddies ? ( <p className="mt-4 text-onSurface">Loading buddies...</p> ) : 
                     buddies.length > 0 ? (
-                        <ul className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <ul className="mt-4 space-y-3 max-h-60 overflow-y-auto pr-2">
                             {buddies.map(buddy => (
                                 <li key={buddy.uid} className="flex items-center justify-between p-3 bg-background rounded-lg transition hover:bg-gray-800 border border-gray-700">
                                     <div className="flex items-center gap-3">
                                         <Avatar user={buddy} className="w-10 h-10"/>
                                         <span className="font-semibold text-onBackground">{buddy.username}</span>
                                     </div>
-                                    <ReactRouterDOM.Link to="/messages" state={{ selectedBuddyId: buddy.uid }} className="text-sm text-primary hover:underline font-semibold">Message</ReactRouterDOM.Link>
+                                    <Link to="/messages" state={{ selectedBuddyId: buddy.uid }} className="text-sm text-primary hover:underline font-semibold">Message</Link>
                                 </li>
                             ))}
                         </ul>
-                    ) : ( <p className="mt-4 text-onSurface">No active buddies yet. <ReactRouterDOM.Link to="/requests" className="text-primary hover:underline">Find a partner</ReactRouterDOM.Link> to get started!</p> )}
+                    ) : ( <p className="mt-4 text-onSurface">No active buddies yet. <Link to="/requests" className="text-primary hover:underline">Find a partner</Link> to get started!</p> )}
                 </div>
-                <div className="bg-surface/50 border border-gray-700 p-6 rounded-lg shadow-lg lg:col-span-1">
+                <div className="bg-surface/50 border border-gray-700 p-6 rounded-lg shadow-lg">
                     <h2 className="text-xl font-semibold flex items-center gap-2 text-onBackground"><ChatBubbleIcon/> Pending Requests</h2>
                     {loadingRequests ? ( <p className="mt-4 text-onSurface">Loading requests...</p> ) : 
                     incomingRequests.length > 0 ? (
-                        <ul className="mt-4 space-y-3">
+                        <ul className="mt-4 space-y-3 max-h-60 overflow-y-auto pr-2">
                             {incomingRequests.map(req => (
                                 <li key={req.id} className="flex items-center justify-between p-2 bg-background rounded-md border border-gray-700">
                                     <span className="text-onSurface">Request from <span className="font-bold text-onBackground">{req.fromUsername}</span></span>
@@ -221,105 +328,131 @@ const HomePage: React.FC = () => {
                         </ul>
                     ) : ( <p className="mt-4 text-onSurface">You have no pending study requests.</p> )}
                 </div>
-                <div className="bg-surface/50 border border-gray-700 p-6 rounded-lg shadow-lg lg:col-span-3">
+                <div className="bg-surface/50 border border-gray-700 p-6 rounded-lg shadow-lg">
                     <h2 className="text-xl font-semibold flex items-center gap-2 text-onBackground"><UsersIcon /> My Groups</h2>
                     {loadingGroups ? <p className="mt-4 text-onSurface">Loading groups...</p> : 
                     myGroups.length > 0 ? (
-                        <ul className={`mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 ${myGroups.length > 6 ? 'max-h-96 overflow-y-auto pr-2' : ''}`}>
+                        <ul className="mt-4 space-y-3 max-h-60 overflow-y-auto pr-2">
                             {myGroups.map(group => (
-                                <ReactRouterDOM.Link to={`/group/${group.id}`} key={group.id} className="block p-4 bg-background rounded-lg transition hover:bg-gray-800 hover:shadow-md border border-gray-700 hover:border-primary/50">
+                                <Link to={`/group/${group.id}`} key={group.id} className="block p-3 bg-background rounded-lg transition hover:bg-gray-800 hover:shadow-md border border-gray-700 hover:border-primary/50">
                                     <h3 className="font-bold text-primary">{group.name}</h3>
                                     <p className="text-sm text-onSurface">{group.subjectName}</p>
-                                    <p className="text-xs text-gray-400 mt-2">{group.memberIds.length} members</p>
-                                </ReactRouterDOM.Link>
+                                    <p className="text-xs text-gray-400 mt-1">{group.memberIds.length} members</p>
+                                </Link>
                             ))}
                         </ul>
                     ) : (
-                        <p className="mt-4 text-onSurface">You haven't joined any groups yet. <ReactRouterDOM.Link to="/groups" className="text-primary hover:underline">Find a group</ReactRouterDOM.Link> to collaborate!</p>
-                    )}
-                </div>
-                <div className="bg-surface/50 border border-gray-700 p-6 rounded-lg shadow-lg lg:col-span-3">
-                    <h2 className="text-xl font-semibold flex items-center gap-2 text-primary"><SparklesIcon /> AI Study Planner</h2>
-                    <div className="mt-4 flex flex-col sm:flex-row items-center gap-4">
-                        <div className="relative w-full sm:w-auto flex-grow" ref={planDropdownRef}>
-                            <button
-                                onClick={() => setIsPlanDropdownOpen(!isPlanDropdownOpen)}
-                                className="w-full text-left p-2 border border-gray-600 rounded-lg focus:ring-primary focus:border-primary bg-surface text-onBackground flex justify-between items-center"
-                            >
-                                <span>{selectedSubjectId ? getSubjectName(selectedSubjectId) : 'Select a subject...'}</span>
-                                <svg className={`w-5 h-5 transform transition-transform ${isPlanDropdownOpen ? 'rotate-180' : ''}`} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
-                            </button>
-                            {isPlanDropdownOpen && (
-                                <div className="absolute bottom-full mb-2 w-full bg-gray-800 border border-gray-700 rounded-xl shadow-lg z-10 animate-fadeInDown max-h-60 overflow-y-auto">
-                                    {ALL_SUBJECTS.map(subject => (
-                                        <div
-                                            key={subject.id}
-                                            onClick={() => {
-                                                setSelectedSubjectId(subject.id);
-                                                setIsPlanDropdownOpen(false);
-                                            }}
-                                            className="p-3 hover:bg-primary/20 cursor-pointer text-onSurface"
-                                        >
-                                            {subject.name}
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                        <button onClick={handleGeneratePlan} disabled={!selectedSubjectId || isGeneratingPlan} className="w-full sm:w-auto px-6 py-2 bg-gradient-to-r from-indigo-700 to-indigo-500 text-white font-semibold rounded-lg hover:from-indigo-600 hover:to-indigo-400 transition transform active:scale-95 disabled:bg-gray-600 disabled:cursor-not-allowed shadow-lg hover:shadow-primary/30">
-                            {isGeneratingPlan ? 'Generating...' : 'Generate Plan'}
-                        </button>
-                    </div>
-
-                    {isGeneratingPlan && <div className="mt-4 text-center text-onSurface">Generating your study plan...</div>}
-
-                    {studyPlan && (
-                        <div className="mt-6 p-4 bg-indigo-500/10 rounded-lg animate-fadeInUp border border-indigo-500/30">
-                            <h3 className="text-lg font-bold mb-2 text-onBackground">Your {getSubjectName(selectedSubjectId!)} Study Plan:</h3>
-                            <div className="whitespace-pre-wrap text-onSurface prose prose-invert" dangerouslySetInnerHTML={{ __html: studyPlan.replace(/\n/g, '<br />') }} />
-                            
-                            {buddies.length > 0 && (
-                                <div className="mt-6 pt-4 border-t border-indigo-500/30">
-                                    <h4 className="font-semibold text-onBackground">Share with a buddy:</h4>
-                                    <div className="mt-2 flex flex-col sm:flex-row items-center gap-4">
-                                        <div className="relative w-full sm:w-auto flex-grow" ref={buddyDropdownRef}>
-                                            <button
-                                                type="button"
-                                                onClick={() => setIsBuddyDropdownOpen(!isBuddyDropdownOpen)}
-                                                className="w-full text-left p-2 border border-gray-600 rounded-lg focus:ring-primary focus:border-primary bg-surface text-onBackground flex justify-between items-center"
-                                            >
-                                                <span>{buddies.find(b => b.uid === selectedBuddyToSend)?.username || 'Select a buddy...'}</span>
-                                                <svg className={`w-5 h-5 transform transition-transform ${isBuddyDropdownOpen ? 'rotate-180' : ''}`} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
-                                            </button>
-                                            {isBuddyDropdownOpen && (
-                                                <div className="absolute bottom-full mb-2 w-full bg-gray-800 border border-gray-700 rounded-xl shadow-lg z-10 animate-fadeInDown max-h-40 overflow-y-auto">
-                                                    {buddies.map(buddy => (
-                                                        <div
-                                                            key={buddy.uid}
-                                                            onClick={() => {
-                                                                setSelectedBuddyToSend(buddy.uid);
-                                                                setIsBuddyDropdownOpen(false);
-                                                            }}
-                                                            className="p-3 hover:bg-primary/20 cursor-pointer text-onSurface"
-                                                        >
-                                                            {buddy.username}
-                                                        </div>
-                                                    ))}
-                                                     {buddies.length === 0 && <div className="p-3 text-onSurface text-sm">No buddies available.</div>}
-                                                </div>
-                                            )}
-                                        </div>
-                                        <button onClick={handleSendPlan} className="w-full sm:w-auto px-6 py-2 bg-gradient-to-r from-teal-600 to-teal-500 text-white font-semibold rounded-lg hover:from-teal-500 hover:to-teal-400 transition transform active:scale-95 shadow-lg hover:shadow-secondary/30">
-                                            Send to Buddy
-                                        </button>
-                                    </div>
-                                    {sendSuccessMessage && <p className="mt-2 text-sm text-green-400 animate-fadeInUp">{sendSuccessMessage}</p>}
-                                </div>
-                            )}
-                        </div>
+                        <p className="mt-4 text-onSurface">You haven't joined any groups yet. <Link to="/groups" className="text-primary hover:underline">Find a group</Link> to collaborate!</p>
                     )}
                 </div>
              </div>
+
+             <div className="bg-surface/50 border border-gray-700 p-6 rounded-lg shadow-lg">
+                <h2 className="text-xl font-semibold flex items-center gap-2 text-primary"><SparklesIcon /> AI Study Planner</h2>
+                <div className="mt-4 flex flex-col sm:flex-row items-center gap-4">
+                    <div className="relative w-full sm:w-auto flex-grow" ref={planDropdownRef}>
+                        <button
+                            onClick={() => setIsPlanDropdownOpen(!isPlanDropdownOpen)}
+                            className="w-full text-left p-2 border border-gray-600 rounded-lg focus:ring-primary focus:border-primary bg-surface text-onBackground flex justify-between items-center"
+                        >
+                            <span>{selectedSubjectId ? getSubjectName(selectedSubjectId) : 'Select a subject...'}</span>
+                            <svg className={`w-5 h-5 transform transition-transform ${isPlanDropdownOpen ? 'rotate-180' : ''}`} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                        </button>
+                        {isPlanDropdownOpen && (
+                            <div className="absolute bottom-full mb-2 w-full bg-gray-800 border border-gray-700 rounded-xl shadow-lg z-10 animate-fadeInDown max-h-60 overflow-y-auto">
+                                {ALL_SUBJECTS.map(subject => (
+                                    <div
+                                        key={subject.id}
+                                        onClick={() => {
+                                            setSelectedSubjectId(subject.id);
+                                            setIsPlanDropdownOpen(false);
+                                        }}
+                                        className="p-3 hover:bg-primary/20 cursor-pointer text-onSurface"
+                                    >
+                                        {subject.name}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                    <button onClick={handleGeneratePlan} disabled={!selectedSubjectId || isGeneratingPlan} className="w-full sm:w-auto px-6 py-2 bg-gradient-to-r from-indigo-700 to-indigo-500 text-white font-semibold rounded-lg hover:from-indigo-600 hover:to-indigo-400 transition transform active:scale-95 disabled:bg-gray-600 disabled:cursor-not-allowed shadow-lg hover:shadow-primary/30">
+                        {isGeneratingPlan ? 'Generating...' : 'Generate Plan'}
+                    </button>
+                </div>
+
+                {isGeneratingPlan && <div className="mt-4 text-center text-onSurface">Generating your study plan...</div>}
+
+                {studyPlan && (
+                    <div className="mt-6 p-4 bg-indigo-500/10 rounded-lg animate-fadeInUp border border-indigo-500/30">
+                        <h3 className="text-lg font-bold mb-2 text-onBackground">Your {getSubjectName(selectedSubjectId!)} Study Plan:</h3>
+                        <div className="whitespace-pre-wrap text-onSurface prose prose-invert" dangerouslySetInnerHTML={{ __html: studyPlan.replace(/\n/g, '<br />') }} />
+                        
+                        {buddies.length > 0 && (
+                            <div className="mt-6 pt-4 border-t border-indigo-500/30">
+                                <h4 className="font-semibold text-onBackground">Share with a buddy:</h4>
+                                <div className="mt-2 flex flex-col sm:flex-row items-center gap-4">
+                                    <div className="relative w-full sm:w-auto flex-grow" ref={buddyDropdownRef}>
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsBuddyDropdownOpen(!isBuddyDropdownOpen)}
+                                            className="w-full text-left p-2 border border-gray-600 rounded-lg focus:ring-primary focus:border-primary bg-surface text-onBackground flex justify-between items-center"
+                                        >
+                                            <span>{buddies.find(b => b.uid === selectedBuddyToSend)?.username || 'Select a buddy...'}</span>
+                                            <svg className={`w-5 h-5 transform transition-transform ${isBuddyDropdownOpen ? 'rotate-180' : ''}`} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                                        </button>
+                                        {isBuddyDropdownOpen && (
+                                            <div className="absolute bottom-full mb-2 w-full bg-gray-800 border border-gray-700 rounded-xl shadow-lg z-10 animate-fadeInDown max-h-40 overflow-y-auto">
+                                                {buddies.map(buddy => (
+                                                    <div
+                                                        key={buddy.uid}
+                                                        onClick={() => {
+                                                            setSelectedBuddyToSend(buddy.uid);
+                                                            setIsBuddyDropdownOpen(false);
+                                                        }}
+                                                        className="p-3 hover:bg-primary/20 cursor-pointer text-onSurface"
+                                                    >
+                                                        {buddy.username}
+                                                    </div>
+                                                ))}
+                                                    {buddies.length === 0 && <div className="p-3 text-onSurface text-sm">No buddies available.</div>}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <button onClick={handleSendPlan} className="w-full sm:w-auto px-6 py-2 bg-gradient-to-r from-teal-600 to-teal-500 text-white font-semibold rounded-lg hover:from-teal-500 hover:to-teal-400 transition transform active:scale-95 shadow-lg hover:shadow-secondary/30">
+                                        Send to Buddy
+                                    </button>
+                                </div>
+                                {sendSuccessMessage && <p className="mt-2 text-sm text-green-400 animate-fadeInUp">{sendSuccessMessage}</p>}
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+
+            <div className="bg-surface/50 border border-gray-700 p-6 rounded-lg shadow-lg">
+                <h2 className="text-xl font-semibold flex items-center gap-2 text-secondary"><LightbulbIcon /> AI-Powered Doubt Solver</h2>
+                <form onSubmit={handleClearDoubt} className="mt-4">
+                    <textarea 
+                        value={doubt}
+                        onChange={(e) => setDoubt(e.target.value)}
+                        placeholder="Ask a question or describe a concept you're stuck on..."
+                        className="w-full p-3 border border-gray-600 rounded-lg bg-surface text-onBackground focus:ring-secondary focus:border-secondary"
+                        rows={3}
+                    />
+                    <button type="submit" disabled={isAnswering || !doubt.trim()} className="mt-2 w-full sm:w-auto px-6 py-2 bg-gradient-to-r from-secondary to-teal-500 text-white font-semibold rounded-lg hover:from-teal-500 hover:to-teal-400 transition transform active:scale-95 disabled:opacity-50">
+                        {isAnswering ? 'Thinking...' : 'Get Answer'}
+                    </button>
+                </form>
+
+                {isAnswering && <div className="mt-4 text-center text-onSurface">AI is thinking...</div>}
+
+                {answer && (
+                    <div className="mt-6 p-4 bg-teal-500/10 rounded-lg animate-fadeInUp border border-teal-500/30">
+                        <h3 className="text-lg font-bold mb-2 text-onBackground">Answer:</h3>
+                        <div className="text-onSurface prose prose-invert" dangerouslySetInnerHTML={{ __html: formatAIResponse(answer) }} />
+                    </div>
+                )}
+            </div>
         </div>
     );
 };

@@ -1,6 +1,7 @@
 
+
 import React, { useState, useEffect } from 'react';
-import * as ReactRouterDOM from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { collection, onSnapshot, doc, updateDoc, arrayUnion, addDoc, query } from 'firebase/firestore';
 import { db } from '../../firebase';
@@ -76,9 +77,9 @@ const GroupsPage: React.FC = () => {
             </div>
             <div className="mt-auto pt-4">
                 {group.memberIds.includes(currentUser!.uid) ? (
-                     <ReactRouterDOM.Link to={`/group/${group.id}`} className="w-full font-bold py-3 px-4 rounded-lg bg-green-500 text-white cursor-pointer flex items-center justify-center gap-2">
+                     <Link to={`/group/${group.id}`} className="w-full font-bold py-3 px-4 rounded-lg bg-green-500 text-white cursor-pointer flex items-center justify-center gap-2">
                         <CheckCircleIcon className="w-5 h-5"/> View Group
-                     </ReactRouterDOM.Link>
+                     </Link>
                 ) : (
                     <button onClick={() => handleJoinGroup(group)} className="w-full font-bold py-3 px-4 rounded-lg bg-gradient-to-r from-teal-600 to-teal-500 text-onSecondary hover:from-teal-500 hover:to-teal-400 transition-all duration-[390ms] flex items-center justify-center gap-2 transform hover:scale-105 active:scale-95 shadow-lg hover:shadow-secondary/30">
                         <PlusCircleIcon className="w-5 h-5"/> Join Group

@@ -1,6 +1,7 @@
-
+// FIX: Correctly import useState and useEffect from React. The previous import was syntactically incorrect.
 import React, { useState, useEffect } from 'react';
-import * as ReactRouterDOM from 'react-router-dom';
+import ReactDOM from 'react-dom/client';
+import { HashRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
 
 import { AuthProvider, useAuth } from './components/auth/AuthProvider';
 import ProtectedRoute from './components/auth/ProtectedRoute';
@@ -19,35 +20,38 @@ import RequestsPage from './components/requests/RequestsPage';
 import MessagesPage from './components/messages/MessagesPage';
 import GroupPage from './components/groups/GroupPage';
 import UserProfilePage from './components/user/UserProfilePage';
+import DiscoverPage from './components/discover/DiscoverPage';
 
 const App: React.FC = () => {
     return (
         <AuthProvider>
-            <ReactRouterDOM.HashRouter>
+            <HashRouter>
                 <MainApp />
-            </ReactRouterDOM.HashRouter>
+            </HashRouter>
         </AuthProvider>
     );
 };
 
 const MainApp: React.FC = () => {
-    const { currentUser } = useAuth();
-    const location = ReactRouterDOM.useLocation();
+    const { currentUser, loading: authLoading } = useAuth();
+    const location = useLocation();
     
-    const [isAppLoading, setIsAppLoading] = useState(true);
+    const [isAestheticLoading, setIsAestheticLoading] = useState(true);
     const [displayedLocation, setDisplayedLocation] = useState(location);
     const [transitionClass, setTransitionClass] = useState('animate-fadeInUp');
 
     useEffect(() => {
         const timer = setTimeout(() => {
-            setIsAppLoading(false);
+            setIsAestheticLoading(false);
         }, 4000); // Should match loading screen fadeout duration
         return () => clearTimeout(timer);
     }, []);
 
+    const isAppReady = !isAestheticLoading && !authLoading;
+
     useEffect(() => {
-        if (!isAppLoading && location.pathname !== displayedLocation.pathname) {
-            const routeOrder = ['/', '/groups', '/requests', '/messages', '/profile'];
+        if (isAppReady && location.pathname !== displayedLocation.pathname) {
+            const routeOrder = ['/', '/groups', '/requests', '/messages', '/discover', '/profile'];
             const oldIndex = routeOrder.indexOf(displayedLocation.pathname);
             const newIndex = routeOrder.indexOf(location.pathname);
             
@@ -57,11 +61,11 @@ const MainApp: React.FC = () => {
             }
             setTransitionClass(outClass);
         }
-    }, [location, displayedLocation, isAppLoading]);
+    }, [location, displayedLocation, isAppReady]);
 
     const handleAnimationEnd = () => {
         if (transitionClass.includes('Out') || transitionClass.includes('fadeOut')) {
-            const routeOrder = ['/', '/groups', '/requests', '/messages', '/profile'];
+            const routeOrder = ['/', '/groups', '/requests', '/messages', '/discover', '/profile'];
             const oldIndex = routeOrder.indexOf(displayedLocation.pathname);
             const newIndex = routeOrder.indexOf(location.pathname);
 
@@ -75,12 +79,12 @@ const MainApp: React.FC = () => {
         }
     };
 
-    if (isAppLoading) {
+    if (!isAppReady) {
         return <LoadingScreen />;
     }
 
     return (
-        <div className="min-h-screen bg-background relative">
+        <div className="min-h-screen bg-background relative app-background">
             <div className="animated-gradient"></div>
             <AnimatedShapes />
             <div className="relative z-10">
@@ -91,17 +95,18 @@ const MainApp: React.FC = () => {
                         className={transitionClass}
                         onAnimationEnd={handleAnimationEnd}
                     >
-                        <ReactRouterDOM.Routes location={displayedLocation}>
-                            <ReactRouterDOM.Route path="/auth" element={<AuthPage />} />
-                            <ReactRouterDOM.Route path="/" element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
-                            <ReactRouterDOM.Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
-                            <ReactRouterDOM.Route path="/groups" element={<ProtectedRoute><GroupsPage /></ProtectedRoute>} />
-                            <ReactRouterDOM.Route path="/requests" element={<ProtectedRoute><RequestsPage /></ProtectedRoute>} />
-                            <ReactRouterDOM.Route path="/messages" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
-                            <ReactRouterDOM.Route path="/group/:id" element={<ProtectedRoute><GroupPage /></ProtectedRoute>} />
-                            <ReactRouterDOM.Route path="/user/:username" element={<ProtectedRoute><UserProfilePage /></ProtectedRoute>} />
-                            <ReactRouterDOM.Route path="*" element={<ReactRouterDOM.Navigate to={currentUser ? "/" : "/auth"} />} />
-                        </ReactRouterDOM.Routes>
+                        <Routes location={displayedLocation}>
+                            <Route path="/auth" element={<AuthPage />} />
+                            <Route path="/" element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
+                            <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
+                            <Route path="/groups" element={<ProtectedRoute><GroupsPage /></ProtectedRoute>} />
+                            <Route path="/requests" element={<ProtectedRoute><RequestsPage /></ProtectedRoute>} />
+                            <Route path="/messages" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
+                            <Route path="/discover" element={<ProtectedRoute><DiscoverPage /></ProtectedRoute>} />
+                            <Route path="/group/:id" element={<ProtectedRoute><GroupPage /></ProtectedRoute>} />
+                            <Route path="/user/:username" element={<ProtectedRoute><UserProfilePage /></ProtectedRoute>} />
+                            <Route path="*" element={<Navigate to={currentUser ? "/" : "/auth"} />} />
+                        </Routes>
                     </div>
                 </main>
             </div>

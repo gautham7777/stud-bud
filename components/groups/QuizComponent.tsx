@@ -12,9 +12,13 @@ const QuizLeaderboard: React.FC<{ quizId: string }> = ({ quizId }) => {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const q = query(collection(db, "quizAttempts"), where("quizId", "==", quizId), orderBy("score", "desc"));
+        // FIX: Removed orderBy("score", "desc") from the query to prevent a crash caused by a missing composite index.
+        // The sorting is now handled on the client-side after fetching the data.
+        const q = query(collection(db, "quizAttempts"), where("quizId", "==", quizId));
         const unsubscribe = onSnapshot(q, snapshot => {
             const attemptsData = snapshot.docs.map(doc => doc.data() as QuizAttempt);
+            // Sort by score in descending order on the client
+            attemptsData.sort((a, b) => b.score - a.score);
             setAttempts(attemptsData);
             setLoading(false);
         });
