@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
@@ -10,6 +8,7 @@ import { User, Message } from '../../types';
 import Avatar from '../core/Avatar';
 import { sendMessageToBuddy } from '../../lib/messaging';
 import { PaperClipIcon, TrashIcon } from '../icons';
+import Modal from '../core/Modal';
 
 const MessagesPage: React.FC = () => {
     const { currentUser } = useAuth();
@@ -23,6 +22,8 @@ const MessagesPage: React.FC = () => {
     const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
     const imageInputRef = useRef<HTMLInputElement>(null);
     const [isUploadingImage, setIsUploadingImage] = useState(false);
+    const [uploadError, setUploadError] = useState('');
+    const [viewedImageUrl, setViewedImageUrl] = useState<string | null>(null);
 
     useEffect(() => {
         const handleResize = () => setIsMobile(window.innerWidth < 768);
@@ -111,6 +112,7 @@ const MessagesPage: React.FC = () => {
     const handleImageSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
             const file = e.target.files[0];
+            setUploadError('');
             handleImageUpload(file);
         }
     };
@@ -119,6 +121,7 @@ const MessagesPage: React.FC = () => {
         if (!currentUser || !selectedBuddy) return;
 
         setIsUploadingImage(true);
+        setUploadError('');
         const storageRef = ref(storage, `chat-images/${[currentUser.uid, selectedBuddy.uid].sort().join('-')}/${Date.now()}_${file.name}`);
         const uploadTask = uploadBytesResumable(storageRef, file);
 
@@ -126,7 +129,7 @@ const MessagesPage: React.FC = () => {
             () => {},
             (error) => {
                 console.error("Image upload failed:", error);
-                alert("Image upload failed. Check your Firebase Storage security rules to allow authenticated users to write.");
+                setUploadError("Image upload failed. You might not have permission.");
                 setIsUploadingImage(false);
             },
             async () => {
@@ -229,7 +232,11 @@ const MessagesPage: React.FC = () => {
                                         <div key={msg.id} className={`flex mb-4 ${msg.senderId === currentUser?.uid ? 'justify-end' : 'justify-start'}`}>
                                             <div className={`max-w-xs lg:max-w-md rounded-lg shadow-sm ${msg.senderId === currentUser?.uid ? 'bg-primary text-white' : 'bg-gray-700 text-onBackground'}`}>
                                                 {msg.text && <p className="px-4 py-2 whitespace-pre-wrap">{msg.text}</p>}
-                                                {msg.imageUrl && <img src={msg.imageUrl} alt="Shared content" className="rounded-lg max-w-full h-auto" />}
+                                                {msg.imageUrl && (
+                                                    <button onClick={() => setViewedImageUrl(msg.imageUrl)}>
+                                                        <img src={msg.imageUrl} alt="Shared content" className="rounded-lg max-w-full h-auto cursor-pointer" />
+                                                    </button>
+                                                )}
                                             </div>
                                         </div>
                                     ))}
@@ -242,14 +249,17 @@ const MessagesPage: React.FC = () => {
                                     )}
                                     <div ref={messagesEndRef} />
                                 </div>
-                                <form onSubmit={handleSendMessage} className="p-4 border-t border-gray-700 flex gap-2 bg-surface items-center">
-                                    <input type="file" ref={imageInputRef} onChange={handleImageSelected} className="hidden" accept="image/*" />
-                                    <button type="button" onClick={() => imageInputRef.current?.click()} className="p-2 text-onSurface hover:text-primary transition-colors">
-                                        <PaperClipIcon className="w-6 h-6" />
-                                    </button>
-                                    <input type="text" value={newMessage} onChange={e => setNewMessage(e.target.value)} placeholder="Type a message..." className="flex-1 p-2 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary bg-gray-700 text-onBackground"/>
-                                    <button type="submit" className="px-4 py-2 bg-gradient-to-r from-indigo-700 to-indigo-500 text-white font-semibold rounded-lg hover:from-indigo-600 hover:to-indigo-400 transition transform active:scale-95">Send</button>
-                                </form>
+                                <div className="p-4 border-t border-gray-700 bg-surface">
+                                    {uploadError && <p className="text-danger text-xs mb-2 text-center">{uploadError}</p>}
+                                    <form onSubmit={handleSendMessage} className="flex gap-2 items-center">
+                                        <input type="file" ref={imageInputRef} onChange={handleImageSelected} className="hidden" accept="image/*" />
+                                        <button type="button" onClick={() => imageInputRef.current?.click()} className="p-2 text-onSurface hover:text-primary transition-colors">
+                                            <PaperClipIcon className="w-6 h-6" />
+                                        </button>
+                                        <input type="text" value={newMessage} onChange={e => { setNewMessage(e.target.value); setUploadError(''); }} placeholder="Type a message..." className="flex-1 p-2 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary bg-gray-700 text-onBackground"/>
+                                        <button type="submit" className="px-4 py-2 bg-gradient-to-r from-indigo-700 to-indigo-500 text-white font-semibold rounded-lg hover:from-indigo-600 hover:to-indigo-400 transition transform active:scale-95">Send</button>
+                                    </form>
+                                </div>
                             </>
                         ) : (
                             <div className="flex-1 flex items-center justify-center text-onSurface">
@@ -259,6 +269,11 @@ const MessagesPage: React.FC = () => {
                     </div>
                 )}
             </div>
+            <Modal isOpen={!!viewedImageUrl} onClose={() => setViewedImageUrl(null)} className="max-w-4xl p-0 bg-transparent border-none shadow-none" showCloseButton={false}>
+                {viewedImageUrl && (
+                    <img src={viewedImageUrl} alt="Full screen view" className="max-h-[90vh] max-w-[90vw] object-contain rounded-lg" />
+                )}
+            </Modal>
         </div>
     );
 };

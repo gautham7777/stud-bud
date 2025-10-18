@@ -7,7 +7,8 @@ const Modal: React.FC<{
   onClose: () => void;
   children: React.ReactNode;
   className?: string;
-}> = ({ isOpen, onClose, children, className = 'max-w-lg' }) => {
+  showCloseButton?: boolean;
+}> = ({ isOpen, onClose, children, className = 'max-w-lg', showCloseButton = true }) => {
   if (!isOpen) return null;
 
   return createPortal(
@@ -21,13 +22,15 @@ const Modal: React.FC<{
         className={`bg-surface rounded-lg p-6 shadow-2xl w-full border border-gray-700 animate-scaleIn relative ${className}`}
         onClick={e => e.stopPropagation()}
       >
-        <button
-          onClick={onClose}
-          className="absolute top-3 right-3 text-onSurface hover:text-danger transition-colors"
-          aria-label="Close modal"
-        >
-          <XCircleIcon className="w-8 h-8" />
-        </button>
+        {showCloseButton && (
+            <button
+            onClick={onClose}
+            className="absolute top-3 right-3 text-onSurface hover:text-danger transition-colors"
+            aria-label="Close modal"
+          >
+            <XCircleIcon className="w-8 h-8" />
+          </button>
+        )}
         {children}
       </div>
     </div>,

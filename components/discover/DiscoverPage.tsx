@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../auth/AuthProvider';
 import { db, storage } from '../../firebase';
@@ -18,6 +17,7 @@ const DiscoverPage: React.FC = () => {
     const [postImagePreview, setPostImagePreview] = useState<string | null>(null);
     const [isUploading, setIsUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(0);
+    const [uploadError, setUploadError] = useState('');
     const imageInputRef = useRef<HTMLInputElement>(null);
 
     const [commentModalPostId, setCommentModalPostId] = useState<string | null>(null);
@@ -37,6 +37,7 @@ const DiscoverPage: React.FC = () => {
             const file = e.target.files[0];
             setPostImageFile(file);
             setPostImagePreview(URL.createObjectURL(file));
+            setUploadError('');
         }
     };
     
@@ -50,50 +51,55 @@ const DiscoverPage: React.FC = () => {
         if (!currentUser || (!postText.trim() && !postImageFile)) return;
 
         setIsUploading(true);
+        setUploadError('');
 
-        let mediaUrl: string | undefined = undefined;
-        let mediaType: 'image' | undefined = undefined;
-
-        if (postImageFile) {
-            mediaType = 'image';
-            const storageRef = ref(storage, `discover-media/${currentUser.uid}/${Date.now()}_${postImageFile.name}`);
-            const uploadTask = uploadBytesResumable(storageRef, postImageFile);
-
-            await new Promise<void>((resolve, reject) => {
-                uploadTask.on('state_changed',
-                    (snapshot) => {
-                        const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-                        setUploadProgress(progress);
-                    },
-                    (error) => {
-                        console.error("Upload failed:", error);
-                        setIsUploading(false);
-                        reject(error);
-                    },
-                    async () => {
-                        mediaUrl = await getDownloadURL(uploadTask.snapshot.ref);
-                        resolve();
-                    }
-                );
+        try {
+            let mediaUrl: string | undefined = undefined;
+            let mediaType: 'image' | undefined = undefined;
+    
+            if (postImageFile) {
+                mediaType = 'image';
+                const storageRef = ref(storage, `discover-media/${currentUser.uid}/${Date.now()}_${postImageFile.name}`);
+                const uploadTask = uploadBytesResumable(storageRef, postImageFile);
+    
+                mediaUrl = await new Promise<string>((resolve, reject) => {
+                    uploadTask.on('state_changed',
+                        (snapshot) => {
+                            const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+                            setUploadProgress(progress);
+                        },
+                        (error) => {
+                            console.error("Upload failed:", error);
+                            reject(error);
+                        },
+                        async () => {
+                            const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+                            resolve(downloadURL);
+                        }
+                    );
+                });
+            }
+            
+            await addDoc(collection(db, "discoverPosts"), {
+                creatorId: currentUser.uid,
+                creatorUsername: currentUser.username,
+                creatorPhotoURL: currentUser.photoURL || null,
+                text: postText,
+                mediaUrl,
+                mediaType,
+                likes: [],
+                commentCount: 0,
+                createdAt: Date.now(),
             });
+    
+            setPostText('');
+            cancelImage();
+            setUploadProgress(0);
+        } catch (error) {
+            setUploadError("Failed to create post. You may not have permission to upload files.");
+        } finally {
+            setIsUploading(false);
         }
-        
-        await addDoc(collection(db, "discoverPosts"), {
-            creatorId: currentUser.uid,
-            creatorUsername: currentUser.username,
-            creatorPhotoURL: currentUser.photoURL || null,
-            text: postText,
-            mediaUrl,
-            mediaType,
-            likes: [],
-            commentCount: 0,
-            createdAt: Date.now(),
-        });
-
-        setPostText('');
-        cancelImage();
-        setIsUploading(false);
-        setUploadProgress(0);
     };
     
     const handleLike = async (post: DiscoverPost) => {
@@ -146,7 +152,7 @@ const DiscoverPage: React.FC = () => {
             <div className="bg-surface p-4 rounded-xl shadow-lg mb-8 border border-gray-800/50">
                 <textarea 
                     value={postText}
-                    onChange={e => setPostText(e.target.value)}
+                    onChange={e => { setPostText(e.target.value); setUploadError(''); }}
                     placeholder={`What's on your mind, ${currentUser?.username}?`}
                     className="w-full bg-transparent p-2 text-lg text-onBackground placeholder-gray-500 focus:outline-none resize-none"
                     rows={3}
@@ -164,6 +170,7 @@ const DiscoverPage: React.FC = () => {
                         <div className="bg-primary h-1 rounded-full" style={{ width: `${uploadProgress}%` }}></div>
                     </div>
                 )}
+                {uploadError && <p className="text-danger text-sm mt-2">{uploadError}</p>}
                 <div className="flex justify-between items-center mt-2 pt-2 border-t border-gray-700/50">
                     <input type="file" ref={imageInputRef} onChange={handleImageSelect} className="hidden" accept="image/*" />
                     <button onClick={() => imageInputRef.current?.click()} className="p-2 text-onSurface hover:text-primary transition-colors" title="Add image">

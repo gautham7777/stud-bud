@@ -13,6 +13,7 @@ import QuizComponent from './QuizComponent';
 import ScheduleSessionModal from './ScheduleSessionModal';
 import { PencilIcon, CheckCircleIcon, XCircleIcon, UsersIcon, ChevronDownIcon, PlusCircleIcon, TrashIcon, PaperClipIcon, CalendarIcon } from '../icons';
 import { isMessageInappropriate } from '../../lib/moderation';
+import Modal from '../core/Modal';
 
 
 const GroupPage: React.FC = () => {
@@ -36,6 +37,8 @@ const GroupPage: React.FC = () => {
     const imageInputRef = useRef<HTMLInputElement>(null);
     const [isUploadingImage, setIsUploadingImage] = useState(false);
     const [isScheduleModalOpen, setScheduleModalOpen] = useState(false);
+    const [uploadError, setUploadError] = useState('');
+    const [viewedImageUrl, setViewedImageUrl] = useState<string | null>(null);
 
     if (!id) {
         return <div className="container mx-auto p-8 animate-fadeInUp text-center"><h1 className="text-2xl">Group Not Found</h1><p>The link may be broken or the group may have been deleted.</p></div>;
@@ -191,6 +194,7 @@ const GroupPage: React.FC = () => {
     const handleImageSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
             const file = e.target.files[0];
+            setUploadError('');
             handleImageUpload(file);
         }
     };
@@ -199,6 +203,7 @@ const GroupPage: React.FC = () => {
         if (!currentUser || !id) return;
 
         setIsUploadingImage(true);
+        setUploadError('');
         const storageRef = ref(storage, `group-chat-images/${id}/${Date.now()}_${file.name}`);
         const uploadTask = uploadBytesResumable(storageRef, file);
 
@@ -206,7 +211,7 @@ const GroupPage: React.FC = () => {
             () => {},
             (error) => {
                 console.error("Image upload failed:", error);
-                alert("Image upload failed. This may be a permissions issue. Check your Firebase Storage security rules to allow authenticated users to write.");
+                setUploadError("Image upload failed. You might not have permission to upload to this group.");
                 setIsUploadingImage(false);
             },
             async () => {
@@ -245,6 +250,9 @@ const GroupPage: React.FC = () => {
     
     const handleDeleteGroup = async () => {
         if (!group || !currentUser || group.creatorId !== currentUser.uid) return;
+        if (!window.confirm("Are you sure you want to delete this group? This will remove all members and delete all chat history and content. This action cannot be undone.")) {
+            return;
+        }
         try {
             const batch = writeBatch(db);
             const messagesQuery = query(collection(db, "studyGroups", group.id, "messages"));
@@ -286,6 +294,11 @@ const GroupPage: React.FC = () => {
     return (
         <div className="container mx-auto p-8">
             <ScheduleSessionModal isOpen={isScheduleModalOpen} onClose={() => setScheduleModalOpen(false)} onSchedule={handleScheduleSession} />
+            <Modal isOpen={!!viewedImageUrl} onClose={() => setViewedImageUrl(null)} className="max-w-4xl p-0 bg-transparent border-none shadow-none" showCloseButton={false}>
+                {viewedImageUrl && (
+                    <img src={viewedImageUrl} alt="Full screen view" className="max-h-[90vh] max-w-[90vw] object-contain rounded-lg" />
+                )}
+            </Modal>
 
             {isEditingName ? (
                 <div className="flex items-center gap-2 mb-2">
@@ -356,12 +369,16 @@ const GroupPage: React.FC = () => {
                                     <div className={`max-w-xs rounded-lg ${msg.senderId === currentUser?.uid ? 'bg-primary text-onPrimary' : 'bg-gray-700 text-onBackground'}`}>
                                         {msg.senderId !== currentUser?.uid && <p className="font-semibold text-xs text-primary mb-1 px-3 pt-2">{msg.senderUsername || 'User'}</p>}
                                         {msg.text && <p className="whitespace-pre-wrap text-sm px-3 py-2">{msg.text}</p>}
-                                        {msg.imageUrl && <img src={msg.imageUrl} alt="Shared in chat" className="rounded-lg max-w-full h-auto" />}
+                                        {msg.imageUrl && (
+                                            <button onClick={() => setViewedImageUrl(msg.imageUrl)}>
+                                                <img src={msg.imageUrl} alt="Shared in chat" className="rounded-lg max-w-full h-auto cursor-pointer" />
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             ))}
                              {isUploadingImage && (
-                                <div className="flex justify-end mb-4">
+                                <div className="flex items-end justify-end mb-4">
                                     <div className="max-w-xs p-2 rounded-lg bg-primary opacity-50">
                                         <p className="text-sm text-white">Uploading image...</p>
                                     </div>
@@ -369,20 +386,23 @@ const GroupPage: React.FC = () => {
                              )}
                             <div ref={messagesEndRef} />
                         </div>
-                        <form onSubmit={handleTextSubmit} className="mt-4 flex gap-2 flex-shrink-0 items-center">
-                            <input type="file" ref={imageInputRef} onChange={handleImageSelected} className="hidden" accept="image/*" />
-                            <button type="button" onClick={() => imageInputRef.current?.click()} className="p-2 text-onSurface hover:text-primary transition-colors">
-                                <PaperClipIcon className="w-6 h-6" />
-                            </button>
-                            <input 
-                                type="text" 
-                                value={newMessage}
-                                onChange={e => setNewMessage(e.target.value)}
-                                placeholder="Say something..."
-                                className="flex-1 p-2 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary bg-gray-700 text-onBackground"
-                            />
-                            <button type="submit" className="px-4 py-2 bg-gradient-to-r from-indigo-700 to-indigo-500 text-white font-semibold rounded-lg hover:from-indigo-600 hover:to-indigo-400 transition transform active:scale-95">Send</button>
-                        </form>
+                        <div className="mt-4 flex-shrink-0">
+                            {uploadError && <p className="text-danger text-xs text-center mb-2">{uploadError}</p>}
+                            <form onSubmit={handleTextSubmit} className="flex gap-2 items-center">
+                                <input type="file" ref={imageInputRef} onChange={handleImageSelected} className="hidden" accept="image/*" />
+                                <button type="button" onClick={() => imageInputRef.current?.click()} className="p-2 text-onSurface hover:text-primary transition-colors">
+                                    <PaperClipIcon className="w-6 h-6" />
+                                </button>
+                                <input 
+                                    type="text" 
+                                    value={newMessage}
+                                    onChange={e => { setNewMessage(e.target.value); setUploadError(''); }}
+                                    placeholder="Say something..."
+                                    className="flex-1 p-2 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary bg-gray-700 text-onBackground"
+                                />
+                                <button type="submit" className="px-4 py-2 bg-gradient-to-r from-indigo-700 to-indigo-500 text-white font-semibold rounded-lg hover:from-indigo-600 hover:to-indigo-400 transition transform active:scale-95">Send</button>
+                            </form>
+                        </div>
                     </div>
 
                     <div className="bg-surface p-6 rounded-lg shadow-md border border-gray-700">

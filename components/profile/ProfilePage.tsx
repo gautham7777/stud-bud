@@ -74,6 +74,7 @@ const ProfilePage: React.FC = () => {
             const file = e.target.files[0];
             setProfileImageFile(file);
             setProfileImagePreview(URL.createObjectURL(file));
+            setProfileUploadError(null);
         }
     };
 
@@ -92,7 +93,7 @@ const ProfilePage: React.FC = () => {
             },
             (error) => {
                 console.error("Upload failed:", error);
-                setProfileUploadError("Upload failed. Please try again.");
+                setProfileUploadError("Upload failed. You may not have permission.");
                 setProfileUploadProgress(null);
             },
             async () => {
@@ -114,13 +115,14 @@ const ProfilePage: React.FC = () => {
             const file = e.target.files[0];
             setMaterialImageFile(file);
             setMaterialImagePreview(URL.createObjectURL(file));
+            setMaterialUploadError(null);
         }
     };
 
     const handleMaterialUpload = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!materialImageFile || !materialDescription.trim()) {
-            alert("Please select an image and provide a description.");
+            setMaterialUploadError("Please select an image and provide a description.");
             return;
         }
         setIsUploadingMaterial(true);
@@ -137,7 +139,7 @@ const ProfilePage: React.FC = () => {
             },
             (error) => {
                 console.error("Material upload failed:", error);
-                setMaterialUploadError("Upload failed. Check Firebase Storage rules to allow writes (e.g., `allow write: if request.auth != null;`)");
+                setMaterialUploadError("Upload failed. You may not have permission to upload files.");
                 setIsUploadingMaterial(false);
                 setMaterialUploadProgress(null);
             },
@@ -311,7 +313,7 @@ const ProfilePage: React.FC = () => {
                         <input type="file" accept="image/*" onChange={handleMaterialFileChange} ref={materialFileInputRef} className="hidden" />
                     </div>
                     <div className="md:col-span-2 flex flex-col gap-4">
-                        <textarea value={materialDescription} onChange={e => setMaterialDescription(e.target.value)} placeholder="Description..." required className="w-full p-2 border border-gray-600 rounded-md bg-gray-700 text-onBackground" rows={3}></textarea>
+                        <textarea value={materialDescription} onChange={e => { setMaterialDescription(e.target.value); setMaterialUploadError(null); }} placeholder="Description..." required className="w-full p-2 border border-gray-600 rounded-md bg-gray-700 text-onBackground" rows={3}></textarea>
                         <button type="submit" disabled={isUploadingMaterial} className="w-full px-4 py-2 bg-secondary text-white font-semibold rounded-lg hover:bg-teal-500 transition disabled:opacity-50">
                             {isUploadingMaterial ? `Uploading ${materialUploadProgress?.toFixed(0)}%...` : 'Upload Material'}
                         </button>

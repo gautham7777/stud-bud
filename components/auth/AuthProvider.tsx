@@ -34,6 +34,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
             if (firebaseUser) {
                 setLoading(true);
+
+                let userLoaded = false;
+                let profileLoaded = false;
+
+                const checkDone = () => {
+                    if (userLoaded && profileLoaded) {
+                        setLoading(false);
+                    }
+                };
+
                 const userDocRef = doc(db, "users", firebaseUser.uid);
                 userUnsubscribe = onSnapshot(userDocRef, (docSnap) => {
                     if (docSnap.exists()) {
@@ -41,6 +51,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     } else {
                         setCurrentUser(null);
                     }
+                    userLoaded = true;
+                    checkDone();
                 });
 
                 const profileDocRef = doc(db, "profiles", firebaseUser.uid);
@@ -50,7 +62,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     } else {
                         setCurrentUserProfile(null);
                     }
-                    setLoading(false);
+                    profileLoaded = true;
+                    checkDone();
                 });
             } else {
                 setCurrentUser(null);
