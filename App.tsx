@@ -1,4 +1,5 @@
 
+
 import React, { useState, useContext, createContext, useMemo, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { HashRouter, Routes, Route, Link, Navigate, useLocation, useParams, useNavigate } from 'react-router-dom';
@@ -382,6 +383,59 @@ const sendMessageToBuddy = async (senderId: string, receiverId: string, content:
     await setDoc(conversationRef, { participants: [senderId, receiverId]}, { merge: true });
 };
 
+const MotionGraphicsBackground: React.FC = () => (
+    <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+        {/* Shape 1: Larger, more opaque, slower animation */}
+        <div 
+            className="floating-shape bg-primary/20" 
+            style={{ 
+                width: '30rem', 
+                height: '30rem', 
+                top: '5%', 
+                left: '5%', 
+                animationDuration: '35s',
+            }}
+        />
+        {/* Shape 2: Also larger and more opaque, different position and speed */}
+        <div 
+            className="floating-shape bg-secondary/20" 
+            style={{ 
+                width: '25rem', 
+                height: '25rem', 
+                top: '50%', 
+                left: '70%', 
+                animationDuration: '30s',
+                animationDelay: '3s',
+                transform: 'rotate(45deg)' // Initial rotation for variety
+            }}
+        />
+        {/* Shape 3: Larger, more opaque, different color and speed */}
+        <div 
+            className="floating-shape bg-amber-500/10" 
+            style={{ 
+                width: '20rem', 
+                height: '20rem', 
+                top: '20%', 
+                left: '50%', 
+                animationDuration: '40s',
+                animationDelay: '5s',
+            }}
+        />
+        {/* Shape 4: Smaller, but still more visible, different animation */}
+        <div 
+            className="floating-shape bg-primary/10" 
+            style={{ 
+                width: '15rem', 
+                height: '15rem', 
+                top: '75%', 
+                left: '15%', 
+                animationDuration: '28s',
+                animationDirection: 'reverse' // Reverse animation direction for variety
+            }}
+        />
+    </div>
+);
+
 
 // --- PAGES ---
 const AuthPage: React.FC = () => {
@@ -459,7 +513,6 @@ const AuthPage: React.FC = () => {
         { icon: ChatBubbleIcon, name: "Instant Messaging", description: "Communicate with your study buddies and groups through our integrated chat." },
     ];
 
-
     return (
         <div className="bg-background text-onBackground w-full">
             {/* Auth Screen */}
@@ -468,6 +521,7 @@ const AuthPage: React.FC = () => {
                     <div className="absolute top-0 left-0 -translate-x-1/2 -translate-y-1/3 w-[40rem] h-[40rem] bg-gradient-to-br from-primary to-transparent rounded-full opacity-20 blur-3xl" />
                     <div className="absolute bottom-0 right-0 translate-x-1/2 translate-y-1/3 w-[40rem] h-[40rem] bg-gradient-to-tl from-secondary to-transparent rounded-full opacity-20 blur-3xl" />
                 </div>
+                <MotionGraphicsBackground />
 
                 <div className="relative z-10">
                     <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
@@ -2674,12 +2728,50 @@ const AnimatedShapes: React.FC = () => (
     </div>
 );
 
+const SplashScreen: React.FC<{ isFadingOut: boolean }> = ({ isFadingOut }) => {
+    const appName = "StudyBuddy";
+    return (
+        <div className={`splash-screen ${isFadingOut ? 'fade-out' : ''}`}>
+             <div className="animated-gradient" />
+            <MotionGraphicsBackground />
+            <div className="splash-content">
+                <BookOpenIcon className="splash-logo" />
+                <h1 className="splash-text">
+                    {appName.split('').map((char, index) => (
+                        <span key={index} style={{ animationDelay: `${0.5 + index * 0.1}s` }}>
+                            {char === ' ' ? '\u00A0' : char}
+                        </span>
+                    ))}
+                </h1>
+            </div>
+        </div>
+    );
+};
+
 const MainApp: React.FC = () => {
     const { currentUser } = useAuth();
     const location = useLocation();
     
     const [displayedLocation, setDisplayedLocation] = useState(location);
     const [transitionClass, setTransitionClass] = useState('animate-fadeInUp');
+    const [isAppLoading, setIsAppLoading] = useState(true);
+    const [isFadingOut, setIsFadingOut] = useState(false);
+
+    useEffect(() => {
+        const fadeOutTimer = setTimeout(() => {
+            setIsFadingOut(true);
+        }, 2500);
+
+        const endTimer = setTimeout(() => {
+            setIsAppLoading(false);
+        }, 3000);
+
+        return () => {
+            clearTimeout(fadeOutTimer);
+            clearTimeout(endTimer);
+        };
+    }, []);
+
 
     useEffect(() => {
         if (location.pathname !== displayedLocation.pathname) {
@@ -2710,6 +2802,10 @@ const MainApp: React.FC = () => {
             setTransitionClass(inClass);
         }
     };
+
+    if (isAppLoading) {
+        return <SplashScreen isFadingOut={isFadingOut} />;
+    }
 
     return (
         <div className="min-h-screen bg-background relative">
