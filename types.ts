@@ -14,7 +14,7 @@ export enum StudyMethod {
 export interface User {
   uid: string;
   email: string;
-  username: string;
+  username:string;
   photoURL?: string;
   connections?: string[]; // Array of user UIDs
 }
@@ -28,6 +28,7 @@ export interface StudentProfile {
   subjectsNeedHelp: number[]; // Array of subject IDs
   subjectsCanHelp: number[]; // Array of subject IDs
   badges?: string[];
+  quizWins?: number;
 }
 
 export interface Subject {
@@ -51,37 +52,15 @@ export interface Message {
   conversationId: string; // e.g., "user-uid1-user-uid2" or "group-id"
   text: string;
   timestamp: number;
-}
-
-export interface QuizQuestion {
-  question: string;
-  options: string[];
-  correctAnswer: string;
-}
-
-export interface Quiz {
-  id: string;
-  title: string;
-  subject: string;
-  questions: QuizQuestion[];
-  createdBy: string;
-  createdAt: number;
-}
-
-export interface UserQuizAttempt {
-  userId: string;
-  username: string;
-  score: number;
-  total: number;
-  timestamp: number;
+  // For displaying in chat without extra lookups
+  senderUsername?: string; 
+  senderPhotoURL?: string;
 }
 
 export interface SharedContent {
   groupId: string;
   scratchpad: string;
   whiteboardData: any; // Store drawing paths, etc.
-  quizzes?: Quiz[];
-  quizAttempts?: { [quizId: string]: UserQuizAttempt[] };
 }
 
 export interface StudyRequest {
@@ -92,4 +71,29 @@ export interface StudyRequest {
   toUsername: string;
   status: 'pending' | 'accepted' | 'declined';
   createdAt: number;
+}
+
+export interface Question {
+  question: string;
+  options: string[];
+  correctAnswer: string;
+}
+
+export interface Quiz {
+  id: string;
+  groupId: string;
+  subjectName: string;
+  questions: Question[];
+  createdBy: string;
+  createdAt: number;
+}
+
+export interface QuizAttempt {
+  id: string;
+  quizId: string;
+  userId: string;
+  username: string;
+  score: number; // e.g., number of correct answers
+  totalQuestions: number;
+  completedAt: number;
 }
