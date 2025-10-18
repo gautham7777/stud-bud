@@ -25,8 +25,6 @@ export interface StudentProfile {
   learningStyle: LearningStyle;
   preferredMethods: StudyMethod[];
   availability: string[];
-  subjectsNeedHelp: number[]; // Array of subject IDs
-  subjectsCanHelp: number[]; // Array of subject IDs
   badges?: string[];
   quizWins?: number;
 }
@@ -50,7 +48,8 @@ export interface Message {
   id: string;
   senderId: string;
   conversationId: string; // e.g., "user-uid1-user-uid2" or "group-id"
-  text: string;
+  text?: string;
+  imageUrl?: string;
   timestamp: number;
   // For displaying in chat without extra lookups
   senderUsername?: string; 
@@ -70,6 +69,17 @@ export interface StudyRequest {
   toUserId: string;
   toUsername: string;
   status: 'pending' | 'accepted' | 'declined';
+  createdAt: number;
+  postId: string;
+}
+
+export interface StudyPost {
+  id: string;
+  creatorId: string;
+  creatorUsername: string;
+  creatorPhotoURL?: string;
+  subjectIds: number[];
+  description: string;
   createdAt: number;
 }
 
@@ -96,4 +106,21 @@ export interface QuizAttempt {
   score: number; // e.g., number of correct answers
   totalQuestions: number;
   completedAt: number;
+}
+
+export interface StudyMaterial {
+  id: string;
+  userId: string;
+  imageUrl: string;
+  description: string;
+  uploadedAt: number;
+}
+
+export interface UserMark {
+  id: string;
+  userId: string;
+  subjectId: number;
+  subjectName: string;
+  marks: string;
+  createdAt: number;
 }
