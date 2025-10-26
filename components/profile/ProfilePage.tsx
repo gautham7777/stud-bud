@@ -6,16 +6,15 @@ import Avatar from '../core/Avatar';
 import { db, storage } from '../../firebase';
 import { doc, updateDoc, collection, query, where, onSnapshot, addDoc, deleteDoc, orderBy } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
-import { StudyMaterial, UserMark, StudentProfile, LearningStyle } from '../../types';
-import { ALL_AVAILABILITY_OPTIONS, ALL_STUDY_METHODS, ALL_LEARNING_STYLES, ALL_SUBJECTS } from '../../constants';
-import { CheckCircleIcon, TrashIcon, UsersIcon, ClockIcon, ClipboardListIcon, PencilIcon, ExclamationTriangleIcon, LightbulbIcon } from '../icons';
+import { StudyMaterial, UserMark, StudentProfile } from '../../types';
+import { ALL_SUBJECTS } from '../../constants';
+import { TrashIcon, PencilIcon, ExclamationTriangleIcon, PresentationChartBarIcon, DocumentDuplicateIcon, UserCircleIcon } from '../icons';
 import { formatDuration } from '../../lib/helpers';
+import MarksGraph from './MarksGraph';
 
 
 const ProfilePage: React.FC = () => {
-    const { currentUser, currentUserProfile, updateProfile } = useAuth();
-    const [formData, setFormData] = useState<StudentProfile | null>(currentUserProfile);
-    const [isSaved, setIsSaved] = useState(false);
+    const { currentUser, currentUserProfile } = useAuth();
     
     const [profileImageFile, setProfileImageFile] = useState<File | null>(null);
     const [profileImagePreview, setProfileImagePreview] = useState<string | null>(null);
@@ -35,11 +34,8 @@ const ProfilePage: React.FC = () => {
     const [marks, setMarks] = useState<UserMark[]>([]);
     const [isMarksModalOpen, setIsMarksModalOpen] = useState(false);
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+    const [activeTab, setActiveTab] = useState<'progress' | 'materials' | 'settings'>('progress');
 
-
-    useEffect(() => {
-        setFormData(currentUserProfile);
-    }, [currentUserProfile]);
     
     useEffect(() => {
         if (!currentUser) return;
@@ -57,7 +53,7 @@ const ProfilePage: React.FC = () => {
         return () => { unsubMaterials(); unsubMarks(); };
     }, [currentUser]);
 
-    if (!formData || !currentUser || !currentUserProfile) {
+    if (!currentUser || !currentUserProfile) {
         return <div className="container mx-auto p-8 animate-fadeInUp"><p>Loading profile...</p></div>
     }
 
@@ -97,6 +93,15 @@ const ProfilePage: React.FC = () => {
         );
     };
 
+    const handleMaterialFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files[0]) {
+            const file = e.target.files[0];
+            setMaterialImageFile(file);
+            setMaterialImagePreview(URL.createObjectURL(file));
+            setMaterialUploadError(null);
+        }
+    };
+
     const handleMaterialUpload = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!materialImageFile || !materialDescription.trim()) {
@@ -125,6 +130,7 @@ const ProfilePage: React.FC = () => {
                 setMaterialImageFile(null);
                 setMaterialImagePreview(null);
                 setMaterialDescription('');
+                if(materialFileInputRef.current) materialFileInputRef.current.value = "";
             }
         );
     };
@@ -139,117 +145,138 @@ const ProfilePage: React.FC = () => {
 
     const handleDeleteMark = async (markId: string) => { if (!currentUser) return; await deleteDoc(doc(db, "profiles", currentUser.uid, "marks", markId)); };
 
-    const handleMultiSelect = (field: 'preferredMethods' | 'availability', value: any) => {
-        const currentValues = formData[field] as any[];
-        const newValues = currentValues.includes(value) ? currentValues.filter(v => v !== value) : [...currentValues, value];
-        setFormData({ ...formData, [field]: newValues });
-    };
-
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        await updateProfile(formData);
-        setIsSaved(true);
-        setTimeout(() => setIsSaved(false), 3000);
-    };
-
-    const choiceBoxClasses = (isSelected: boolean) => `flex items-center justify-center text-center p-3 rounded-lg cursor-pointer transition-all duration-200 border-2 ${isSelected ? 'border-primary bg-primary/20 scale-105' : 'bg-gray-700/50 border-gray-600 hover:bg-gray-600/50'}`;
+    const TabButton: React.FC<{ name: typeof activeTab, label: string, icon: React.FC<{className?: string}> }> = ({ name, label, icon: Icon }) => (
+        <button
+            onClick={() => setActiveTab(name)}
+            className={`flex items-center gap-2 px-4 py-3 font-semibold border-b-2 transition-colors duration-300 ${activeTab === name ? 'border-primary text-primary' : 'border-transparent text-onSurface hover:text-onBackground'}`}
+        >
+            <Icon className="w-5 h-5" />
+            <span>{label}</span>
+        </button>
+    );
 
     return (
         <div className="container mx-auto p-4 sm:p-8">
             <AddMarksModal isOpen={isMarksModalOpen} onClose={() => setIsMarksModalOpen(false)} onAdd={handleAddMark} />
             <DeleteAccountModal isOpen={isDeleteModalOpen} onClose={() => setIsDeleteModalOpen(false)} />
             
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* Left Column */}
-                <div className="lg:col-span-1 space-y-8">
-                    <div className="bg-surface p-4 sm:p-6 rounded-2xl shadow-lg border border-gray-700 text-center">
-                        <div className="relative w-24 h-24 sm:w-32 sm:h-32 mx-auto">
-                            <Avatar user={{...currentUser, photoURL: profileImagePreview || currentUser.photoURL}} className="w-24 h-24 sm:w-32 sm:h-32 text-4xl" />
-                            <button onClick={() => profileFileInputRef.current?.click()} className="absolute -bottom-1 -right-1 p-2 bg-primary rounded-full text-white hover:bg-indigo-500 transition-transform hover:scale-110 shadow-md">
-                                <PencilIcon className="w-5 h-5" />
-                            </button>
-                            <input type="file" accept="image/*" onChange={handleProfileFileChange} ref={profileFileInputRef} className="hidden" />
+            <div className="bg-surface p-6 rounded-2xl shadow-lg border border-gray-700 flex flex-col sm:flex-row items-center gap-6 mb-8">
+                <div className="relative w-24 h-24 sm:w-32 sm:h-32 mx-auto sm:mx-0 flex-shrink-0">
+                    <Avatar user={{...currentUser, photoURL: profileImagePreview || currentUser.photoURL}} className="w-24 h-24 sm:w-32 sm:h-32 text-4xl" />
+                    <button onClick={() => profileFileInputRef.current?.click()} className="absolute -bottom-1 -right-1 p-2 bg-primary rounded-full text-white hover:bg-indigo-500 transition-transform hover:scale-110 shadow-md">
+                        <PencilIcon className="w-5 h-5" />
+                    </button>
+                    <input type="file" accept="image/*" onChange={handleProfileFileChange} ref={profileFileInputRef} className="hidden" />
+                     {profileUploadProgress !== null && (
+                        <div className="absolute inset-0 rounded-full border-2 border-primary flex items-center justify-center bg-black/50">
+                           <p className="text-white font-bold text-sm">{Math.round(profileUploadProgress)}%</p>
                         </div>
-                        {profileUploadProgress !== null && (
-                            <div className="w-24 sm:w-32 mx-auto mt-3 bg-gray-700 rounded-full h-1.5">
-                                <div className="bg-primary h-1.5 rounded-full" style={{ width: `${profileUploadProgress}%` }}></div>
-                            </div>
-                        )}
-                        <h1 className="text-xl sm:text-2xl font-bold mt-4 text-onBackground">{currentUser.username}</h1>
-                        <p className="text-sm text-onSurface">{currentUser.email}</p>
-                        
-                        <div className="mt-6 grid grid-cols-3 gap-4 text-center">
-                            <div>
-                                <p className="text-xl sm:text-2xl font-bold text-amber-400">{formatDuration(currentUserProfile.totalStudyTime || 0)}</p>
-                                <p className="text-xs text-onSurface uppercase">Studied</p>
-                            </div>
-                            <div>
-                                <p className="text-xl sm:text-2xl font-bold text-secondary">{currentUserProfile.quizWins || 0}</p>
-                                <p className="text-xs text-onSurface uppercase">Quiz Wins</p>
-                            </div>
-                            <div>
-                                <p className="text-xl sm:text-2xl font-bold text-primary">{currentUser.connections?.length || 0}</p>
-                                <p className="text-xs text-onSurface uppercase">Buddies</p>
-                            </div>
+                    )}
+                </div>
+                <div className="flex-grow text-center sm:text-left">
+                    <h1 className="text-2xl sm:text-3xl font-bold text-onBackground">{currentUser.username}</h1>
+                    <p className="text-sm text-onSurface">{currentUser.email}</p>
+                    <div className="mt-4 grid grid-cols-3 gap-4 text-center border-t border-gray-700 pt-4">
+                        <div>
+                            <p className="text-2xl font-bold text-amber-400">{formatDuration(currentUserProfile.totalStudyTime || 0)}</p>
+                            <p className="text-xs text-onSurface uppercase tracking-wider">Studied</p>
+                        </div>
+                        <div>
+                            <p className="text-2xl font-bold text-secondary">{currentUserProfile.quizWins || 0}</p>
+                            <p className="text-xs text-onSurface uppercase tracking-wider">Quiz Wins</p>
+                        </div>
+                        <div>
+                            <p className="text-2xl font-bold text-primary">{currentUser.connections?.length || 0}</p>
+                            <p className="text-xs text-onSurface uppercase tracking-wider">Buddies</p>
                         </div>
                     </div>
                 </div>
+            </div>
 
-                {/* Right Column */}
-                <div className="lg:col-span-2 space-y-8">
-                    <div className="bg-surface p-4 sm:p-6 rounded-2xl shadow-lg border border-gray-700">
-                        <h2 className="text-xl font-bold mb-4 text-onBackground flex items-center gap-2"><LightbulbIcon className="text-primary"/>My Preferences</h2>
-                        <form onSubmit={handleSubmit} className="space-y-6">
-                            <div>
-                                <h3 className="text-md font-semibold text-onSurface mb-2">My Availability</h3>
-                                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                                    {ALL_AVAILABILITY_OPTIONS.map(opt => <div key={opt} onClick={() => handleMultiSelect('availability', opt)} className={choiceBoxClasses(formData.availability.includes(opt))}>{opt}</div>)}
-                                </div>
+            <div>
+                <div className="border-b border-gray-700">
+                    <nav className="-mb-px flex space-x-2 sm:space-x-6 overflow-x-auto">
+                        <TabButton name="progress" label="Progress" icon={PresentationChartBarIcon} />
+                        <TabButton name="materials" label="Materials" icon={DocumentDuplicateIcon} />
+                        <TabButton name="settings" label="Settings" icon={UserCircleIcon} />
+                    </nav>
+                </div>
+                <div className="mt-8">
+                    {activeTab === 'progress' && (
+                        <div className="bg-surface p-4 sm:p-6 rounded-2xl shadow-lg border border-gray-700 animate-fadeInUp">
+                            <div className="flex justify-between items-center mb-6">
+                                <h2 className="text-xl font-bold text-onBackground">My Academic Progress</h2>
+                                <button onClick={() => setIsMarksModalOpen(true)} className="px-4 py-1.5 bg-secondary text-white text-sm font-semibold rounded-lg hover:bg-teal-500 transition">Add Mark</button>
                             </div>
-                            <div>
-                                <h3 className="text-md font-semibold text-onSurface mb-2">Preferred Study Methods</h3>
-                                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                                    {ALL_STUDY_METHODS.map(method => <div key={method} onClick={() => handleMultiSelect('preferredMethods', method)} className={choiceBoxClasses(formData.preferredMethods.includes(method))}>{method}</div>)}
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-4">
-                                <button type="submit" className="px-6 py-2 bg-gradient-to-r from-indigo-700 to-indigo-500 text-white font-semibold rounded-lg hover:from-indigo-600 hover:to-indigo-400 transition transform hover:scale-105 active:scale-95">Save Preferences</button>
-                                {isSaved && <div className="flex items-center gap-2 text-green-400 animate-fadeInUp"><CheckCircleIcon /><span>Saved!</span></div>}
-                            </div>
-                        </form>
-                    </div>
-
-                    <div className="bg-surface p-4 sm:p-6 rounded-2xl shadow-lg border border-gray-700">
-                        <div className="flex justify-between items-center mb-4">
-                            <h2 className="text-xl font-bold text-onBackground flex items-center gap-2"><ClipboardListIcon className="text-secondary"/>My Progress</h2>
-                            <button onClick={() => setIsMarksModalOpen(true)} className="px-4 py-1.5 bg-secondary text-white text-sm font-semibold rounded-lg hover:bg-teal-500 transition">Add Mark</button>
-                        </div>
-                        {marks.length > 0 ? (
-                            <div className="space-y-2">
-                                {marks.map(mark => (
-                                    <div key={mark.id} className="flex items-center justify-between p-3 bg-background rounded-lg">
-                                        <span className="font-semibold text-onSurface">{mark.subjectName}</span>
-                                        <div className="flex items-center gap-3">
-                                            <span className="text-amber-400 font-bold">{mark.marks}</span>
-                                            <button onClick={() => handleDeleteMark(mark.id)} className="p-1 text-danger/70 hover:text-danger hover:bg-danger/10 rounded-full transition"><TrashIcon className="w-4 h-4" /></button>
-                                        </div>
+                            {marks.length > 0 ? (
+                                <>
+                                    <MarksGraph marks={marks} />
+                                    <div className="mt-8 space-y-2">
+                                        {marks.map(mark => (
+                                            <div key={mark.id} className="flex items-center justify-between p-3 bg-background rounded-lg">
+                                                <span className="font-semibold text-onSurface">{mark.subjectName}</span>
+                                                <div className="flex items-center gap-3">
+                                                    <span className="text-amber-400 font-bold">{mark.marks}</span>
+                                                    <button onClick={() => handleDeleteMark(mark.id)} className="p-1 text-danger/70 hover:text-danger hover:bg-danger/10 rounded-full transition"><TrashIcon className="w-4 h-4" /></button>
+                                                </div>
+                                            </div>
+                                        ))}
                                     </div>
-                                ))}
-                            </div>
-                        ) : <p className="text-center text-onSurface py-4">No marks added yet.</p>}
-                    </div>
-                    
-                    <div className="bg-surface p-4 sm:p-6 rounded-2xl shadow-lg border border-gray-700">
-                        <h2 className="text-xl font-bold mb-4 text-onBackground flex items-center gap-2"><UsersIcon className="text-amber-500"/>Account Settings</h2>
-                        <div className="bg-danger/10 border border-danger/50 p-4 rounded-lg flex flex-col md:flex-row items-center justify-between gap-4">
-                            <div>
-                                <h3 className="font-bold text-danger flex items-center gap-2"><ExclamationTriangleIcon/>Delete Account</h3>
-                                <p className="text-sm text-rose-200 mt-1">Permanently delete your account and all associated data. This action is irreversible.</p>
-                            </div>
-                            <button onClick={() => setIsDeleteModalOpen(true)} className="px-4 py-2 bg-danger text-white font-bold rounded-lg hover:bg-rose-700 transition flex-shrink-0">Delete My Account</button>
+                                </>
+                            ) : <p className="text-center text-onSurface py-4">No marks added yet. Add a mark to see your progress graph!</p>}
                         </div>
-                    </div>
+                    )}
 
+                    {activeTab === 'materials' && (
+                         <div className="bg-surface p-4 sm:p-6 rounded-2xl shadow-lg border border-gray-700 animate-fadeInUp">
+                             <h2 className="text-xl font-bold mb-4 text-onBackground">My Study Materials</h2>
+                             <form onSubmit={handleMaterialUpload} className="mb-8 p-4 bg-background rounded-lg space-y-4">
+                                 <h3 className="font-semibold">Upload New Material</h3>
+                                 <div className="flex flex-col sm:flex-row gap-4">
+                                     <div className="flex-shrink-0 w-32 h-32 bg-gray-700 rounded-md flex items-center justify-center border-2 border-dashed border-gray-500 cursor-pointer" onClick={() => materialFileInputRef.current?.click()}>
+                                        {materialImagePreview ? <img src={materialImagePreview} alt="Preview" className="w-full h-full object-cover rounded-md" /> : <span className="text-xs text-center text-gray-400">Select Image</span>}
+                                     </div>
+                                     <input type="file" accept="image/*" onChange={handleMaterialFileChange} ref={materialFileInputRef} className="hidden" />
+                                     <div className="flex-grow space-y-2">
+                                         <input type="text" value={materialDescription} onChange={e => setMaterialDescription(e.target.value)} placeholder="Description..." className="w-full p-2 border border-gray-600 rounded-md bg-gray-700 text-onBackground" />
+                                         <button type="submit" disabled={isUploadingMaterial} className="w-full sm:w-auto px-4 py-2 bg-primary text-white text-sm font-semibold rounded-lg hover:bg-indigo-500 transition disabled:opacity-50">
+                                            {isUploadingMaterial ? `Uploading ${Math.round(materialUploadProgress || 0)}%...` : 'Upload'}
+                                         </button>
+                                          {materialUploadError && <p className="text-danger text-xs mt-1">{materialUploadError}</p>}
+                                     </div>
+                                 </div>
+                             </form>
+
+                             {materials.length > 0 ? (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                                    {materials.map(mat => (
+                                        <div key={mat.id} className="bg-background rounded-lg overflow-hidden group relative">
+                                            <img src={mat.imageUrl} alt={mat.description} className="w-full h-40 object-cover" />
+                                            <div className="p-3">
+                                                <p className="text-sm text-onSurface truncate">{mat.description}</p>
+                                            </div>
+                                            <button onClick={() => handleDeleteMaterial(mat.id)} className="absolute top-2 right-2 p-1 bg-danger rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <TrashIcon className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : <p className="text-center text-onSurface py-4">No study materials uploaded yet.</p>}
+                         </div>
+                    )}
+
+                    {activeTab === 'settings' && (
+                        <div className="bg-surface p-4 sm:p-6 rounded-2xl shadow-lg border border-gray-700 animate-fadeInUp">
+                            <h2 className="text-xl font-bold mb-4 text-onBackground">Account Settings</h2>
+                            <div className="bg-danger/10 border border-danger/50 p-4 rounded-lg flex flex-col md:flex-row items-center justify-between gap-4">
+                                <div>
+                                    <h3 className="font-bold text-danger flex items-center gap-2"><ExclamationTriangleIcon/>Delete Account</h3>
+                                    <p className="text-sm text-rose-200 mt-1">Permanently delete your account and all associated data. This action is irreversible.</p>
+                                </div>
+                                <button onClick={() => setIsDeleteModalOpen(true)} className="px-4 py-2 bg-danger text-white font-bold rounded-lg hover:bg-rose-700 transition flex-shrink-0">Delete My Account</button>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
@@ -65,13 +63,6 @@ const UserProfilePage: React.FC = () => {
     if (loading) return <LoadingSpinner />;
     if (error) return <div className="container mx-auto p-8 text-center text-danger">{error}</div>;
     if (!user || !profile) return <div className="container mx-auto p-8 text-center">User profile not found.</div>;
-
-    const ProfileDetailCard: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
-        <div className="bg-surface/50 p-4 rounded-lg border border-gray-700">
-            <h3 className="font-semibold text-onBackground mb-2">{title}</h3>
-            <div className="flex flex-wrap gap-2">{children}</div>
-        </div>
-    );
     
     return (
         <div className="container mx-auto p-4 sm:p-8">
@@ -80,16 +71,9 @@ const UserProfilePage: React.FC = () => {
                 <h1 className="text-3xl sm:text-4xl font-bold text-onBackground">{user.username}</h1>
             </div>
 
-            <div className="bg-surface p-6 sm:p-8 rounded-lg shadow-lg border border-gray-700 mb-8 grid grid-cols-1 md:grid-cols-3 gap-6">
-                <ProfileDetailCard title="Learning Style">
-                    <span className="bg-primary/20 text-indigo-300 text-sm font-medium px-2.5 py-0.5 rounded-full">{profile.learningStyle}</span>
-                </ProfileDetailCard>
-                <ProfileDetailCard title="Availability">
-                    {profile.availability.map(item => <span key={item} className="bg-secondary/20 text-teal-300 text-sm font-medium px-2.5 py-0.5 rounded-full">{item}</span>)}
-                </ProfileDetailCard>
-                <ProfileDetailCard title="Preferred Methods">
-                     {profile.preferredMethods.map(item => <span key={item} className="bg-amber-500/20 text-amber-300 text-sm font-medium px-2.5 py-0.5 rounded-full">{item}</span>)}
-                </ProfileDetailCard>
+            <div className="bg-surface p-6 sm:p-8 rounded-lg shadow-lg border border-gray-700 mb-8">
+                 <h3 className="font-semibold text-onBackground mb-2">Learning Style</h3>
+                 <span className="bg-primary/20 text-indigo-300 text-sm font-medium px-2.5 py-0.5 rounded-full">{profile.learningStyle}</span>
             </div>
             
              <div className="bg-surface p-6 sm:p-8 rounded-lg shadow-lg border border-gray-700">

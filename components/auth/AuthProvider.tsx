@@ -121,8 +121,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             userId: firebaseUser.uid,
             bio: '',
             learningStyle: LearningStyle.Visual,
-            preferredMethods: [],
-            availability: [],
             badges: [],
             quizWins: 0,
             totalStudyTime: 0,
@@ -136,9 +134,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
      const checkForBadges = useCallback((profile: StudentProfile): string[] => {
         const newBadges: string[] = [];
         const isComplete = profile.bio && 
-                           profile.learningStyle &&
-                           profile.preferredMethods.length > 0 &&
-                           profile.availability.length > 0;
+                           profile.learningStyle;
         if (isComplete) {
             newBadges.push("Profile Pro");
         }

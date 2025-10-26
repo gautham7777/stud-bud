@@ -5,8 +5,6 @@ export const sanitizeProfile = (data: any, userId: string): StudentProfile => ({
     userId: data.userId || userId,
     bio: data.bio || '',
     learningStyle: data.learningStyle || LearningStyle.Visual,
-    preferredMethods: data.preferredMethods || [],
-    availability: data.availability || [],
     badges: data.badges || [],
     quizWins: data.quizWins || 0,
     totalStudyTime: data.totalStudyTime || 0,

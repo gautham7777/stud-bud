@@ -23,8 +23,6 @@ export interface StudentProfile {
   userId: string;
   bio: string;
   learningStyle: LearningStyle;
-  preferredMethods: StudyMethod[];
-  availability: string[];
   badges?: string[];
   quizWins?: number;
   totalStudyTime?: number; // in seconds
@@ -100,6 +98,8 @@ export interface StudyPost {
   creatorPhotoURL?: string;
   subjectIds: number[];
   description: string;
+  availability: string[];
+  preferredMethods: StudyMethod[];
   createdAt: number;
 }
 

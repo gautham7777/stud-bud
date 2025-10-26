@@ -2,12 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../auth/AuthProvider';
 import { collection, query, orderBy, onSnapshot, where, addDoc, writeBatch, getDocs, doc } from 'firebase/firestore';
 import { db } from '../../firebase';
-import { StudyPost, StudyRequest } from '../../types';
-import { ALL_SUBJECTS } from '../../constants';
+import { StudyPost, StudyRequest, StudyMethod } from '../../types';
+import { ALL_SUBJECTS, ALL_AVAILABILITY_OPTIONS, ALL_STUDY_METHODS } from '../../constants';
 import { getSubjectName } from '../../lib/helpers';
 import Modal from '../core/Modal';
 import Avatar from '../core/Avatar';
-import { PlusCircleIcon, CheckCircleIcon, UsersIcon, XCircleIcon, TrashIcon } from '../icons';
+import { PlusCircleIcon, CheckCircleIcon, UsersIcon, XCircleIcon, TrashIcon, ClockIcon, LightbulbIcon } from '../icons';
 
 const RequestsPage: React.FC = () => {
     const { currentUser } = useAuth();
@@ -63,7 +63,7 @@ const RequestsPage: React.FC = () => {
         }
     };
 
-    const handleCreatePost = async (subjectIds: number[], description: string) => {
+    const handleCreatePost = async (subjectIds: number[], description: string, availability: string[], preferredMethods: StudyMethod[]) => {
         if (!currentUser || subjectIds.length === 0 || !description.trim()) return;
 
         await addDoc(collection(db, "studyPosts"), {
@@ -72,6 +72,8 @@ const RequestsPage: React.FC = () => {
             creatorPhotoURL: currentUser.photoURL || null,
             subjectIds,
             description,
+            availability,
+            preferredMethods,
             createdAt: Date.now(),
         });
         setCreateModalOpen(false);
@@ -109,13 +111,23 @@ const RequestsPage: React.FC = () => {
     ];
     const getSubjectColorClass = (subjectId: number) => subjectColors[subjectId % subjectColors.length];
     
-    const CreatePostModal: React.FC<{isOpen: boolean, onClose: () => void, onCreate: (subjectIds: number[], description: string) => void}> = ({isOpen, onClose, onCreate}) => {
+    const CreatePostModal: React.FC<{isOpen: boolean, onClose: () => void, onCreate: (subjectIds: number[], description: string, availability: string[], preferredMethods: StudyMethod[]) => void}> = ({isOpen, onClose, onCreate}) => {
         const [description, setDescription] = useState('');
         const [selectedSubjects, setSelectedSubjects] = useState<number[]>([]);
+        const [availability, setAvailability] = useState<string[]>([]);
+        const [preferredMethods, setPreferredMethods] = useState<StudyMethod[]>([]);
         const [error, setError] = useState('');
 
         const handleSubjectSelect = (subjectId: number) => {
             setSelectedSubjects(prev => prev.includes(subjectId) ? prev.filter(id => id !== subjectId) : [...prev, subjectId]);
+        };
+
+        const handleMultiSelect = (field: 'availability' | 'preferredMethods', value: any) => {
+            if (field === 'availability') {
+                setAvailability(prev => prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]);
+            } else {
+                setPreferredMethods(prev => prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]);
+            }
         };
 
         const handleSubmit = (e: React.FormEvent) => {
@@ -129,10 +141,14 @@ const RequestsPage: React.FC = () => {
                 setError('Please provide a description.');
                 return;
             }
-            onCreate(selectedSubjects, description);
+            onCreate(selectedSubjects, description, availability, preferredMethods);
             setSelectedSubjects([]);
             setDescription('');
+            setAvailability([]);
+            setPreferredMethods([]);
         };
+        
+        const choiceBoxClasses = (isSelected: boolean) => `flex items-center justify-center text-center p-3 rounded-lg cursor-pointer transition-all duration-200 border-2 ${isSelected ? 'border-primary bg-primary/20 scale-105' : 'bg-gray-700/50 border-gray-600 hover:bg-gray-600/50'}`;
 
         return (
             <Modal isOpen={isOpen} onClose={onClose} className="max-w-2xl">
@@ -152,6 +168,18 @@ const RequestsPage: React.FC = () => {
                     <div>
                         <label className="block font-semibold text-onSurface">Description</label>
                         <textarea value={description} onChange={e => setDescription(e.target.value)} required className="w-full mt-2 p-2 border border-gray-600 rounded-md bg-gray-700 text-onBackground focus:ring-primary focus:border-primary" rows={3} placeholder="e.g., 'I'm struggling with kinematic equations in Physics.'"></textarea>
+                    </div>
+                    <div>
+                        <h3 className="text-md font-semibold text-onSurface mb-2">Availability</h3>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                            {ALL_AVAILABILITY_OPTIONS.map(opt => <div key={opt} onClick={() => handleMultiSelect('availability', opt)} className={choiceBoxClasses(availability.includes(opt))}>{opt}</div>)}
+                        </div>
+                    </div>
+                    <div>
+                        <h3 className="text-md font-semibold text-onSurface mb-2">Preferred Study Methods</h3>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                            {ALL_STUDY_METHODS.map(method => <div key={method} onClick={() => handleMultiSelect('preferredMethods', method)} className={choiceBoxClasses(preferredMethods.includes(method))}>{method}</div>)}
+                        </div>
                     </div>
                     {error && <p className="text-danger text-sm">{error}</p>}
                     <div className="flex justify-end gap-4 mt-6">
@@ -203,6 +231,24 @@ const RequestsPage: React.FC = () => {
                     </div>
                 </div>
                 <p className="text-onSurface italic">"{post.description}"</p>
+                <div className="space-y-3">
+                    <div>
+                        <h4 className="font-semibold text-onBackground text-sm mb-2 flex items-center gap-1.5"><ClockIcon className="w-4 h-4 text-amber-400"/> Availability:</h4>
+                        <div className="flex flex-wrap gap-2">
+                            {post.availability.length > 0 ? post.availability.map(item => (
+                                <span key={item} className="bg-amber-500/20 text-amber-300 text-xs font-medium px-2 py-1 rounded-full">{item}</span>
+                            )) : <span className="text-xs text-gray-400">Not specified</span>}
+                        </div>
+                    </div>
+                    <div>
+                        <h4 className="font-semibold text-onBackground text-sm mb-2 flex items-center gap-1.5"><LightbulbIcon className="w-4 h-4 text-teal-400"/> Methods:</h4>
+                        <div className="flex flex-wrap gap-2">
+                            {post.preferredMethods.length > 0 ? post.preferredMethods.map(item => (
+                                <span key={item} className="bg-teal-500/20 text-teal-300 text-xs font-medium px-2 py-1 rounded-full">{item}</span>
+                            )) : <span className="text-xs text-gray-400">Not specified</span>}
+                        </div>
+                    </div>
+                </div>
                 <div>
                     <h4 className="font-semibold text-onBackground text-sm mb-2">Needs help with:</h4>
                     <div className="flex flex-wrap gap-2">
