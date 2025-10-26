@@ -141,7 +141,9 @@ export interface UserMark {
   userId: string;
   subjectId: number;
   subjectName: string;
-  marks: string;
+  examName: string;
+  marksObtained: number;
+  totalMarks: number;
   createdAt: number;
 }
 

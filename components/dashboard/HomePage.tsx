@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
-import { collection, query, where, onSnapshot, doc, updateDoc, writeBatch, arrayUnion, getDocs, getDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, writeBatch, arrayUnion, getDocs, getDoc, orderBy } from 'firebase/firestore';
 import { db } from '../../firebase';
-import { StudyRequest, User, StudyGroup, StudyPost } from '../../types';
+import { StudyRequest, User, StudyGroup, StudyPost, UserMark } from '../../types';
 import Avatar from '../core/Avatar';
 import { UsersIcon, ChatBubbleIcon, CheckCircleIcon, XCircleIcon, SparklesIcon, LightbulbIcon, ClockIcon, RefreshIcon } from '../icons';
 import StudySessionModal from './StudySessionModal';
@@ -11,6 +11,8 @@ import { getSubjectName } from '../../lib/helpers';
 import { ALL_SUBJECTS } from '../../constants';
 import { GoogleGenAI } from "@google/genai";
 import { sendMessageToPartner } from '../../lib/messaging';
+
+const PIE_CHART_COLORS = ['#3b82f6', '#10b981', '#f97316', '#ec4899', '#8b5cf6', '#06b6d4', '#f59e0b', '#ef4444'];
 
 const AnimatedStatCard: React.FC<{ icon: React.ReactNode; label: string; value: number; colorClass: string }> = ({ icon, label, value, colorClass }) => {
     const [count, setCount] = useState(0);
@@ -48,7 +50,6 @@ const AnimatedStatCard: React.FC<{ icon: React.ReactNode; label: string; value: 
     );
 };
 
-
 const HomePage: React.FC = () => {
     const { currentUser, openStudyModal, isStudyModalOpen, closeStudyModal, incrementStudyTime } = useAuth();
     const navigate = useNavigate();
@@ -60,6 +61,8 @@ const HomePage: React.FC = () => {
     const [loadingGroups, setLoadingGroups] = useState(true);
     const [funFact, setFunFact] = useState('');
     const [loadingFact, setLoadingFact] = useState(true);
+    const [marks, setMarks] = useState<UserMark[]>([]);
+    const [loadingMarks, setLoadingMarks] = useState(true);
     
     const fetchFunFact = async () => {
         setLoadingFact(true);
@@ -106,10 +109,17 @@ const HomePage: React.FC = () => {
             setMyGroups(groups);
             setLoadingGroups(false);
         });
+
+        const marksQuery = query(collection(db, "profiles", currentUser.uid, "marks"), orderBy("createdAt", "desc"));
+        const unsubMarks = onSnapshot(marksQuery, (snapshot) => {
+            setMarks(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserMark)));
+            setLoadingMarks(false);
+        });
         
         return () => {
             unsubscribeRequests();
             unsubscribeGroups();
+            unsubMarks();
         };
     }, [currentUser]);
     
@@ -235,6 +245,42 @@ const HomePage: React.FC = () => {
         );
     };
 
+    const { overallPercentage, pieChartData, subjectAverages } = useMemo(() => {
+        if (marks.length === 0) {
+            return { overallPercentage: 0, pieChartData: [], subjectAverages: [] };
+        }
+        const totalObtained = marks.reduce((sum, mark) => sum + mark.marksObtained, 0);
+        const totalPossible = marks.reduce((sum, mark) => sum + mark.totalMarks, 0);
+        const overallPercentage = totalPossible > 0 ? (totalObtained / totalPossible) * 100 : 0;
+
+        const marksBySubject = marks.reduce((acc, mark) => {
+            const subject = mark.subjectName;
+            if (!acc[subject]) acc[subject] = [];
+            acc[subject].push(mark);
+            return acc;
+        }, {} as { [key: string]: UserMark[] });
+
+        const subjectAverages = Object.entries(marksBySubject).map(([subjectName, subjectMarks]) => {
+            const subjectTotalObtained = subjectMarks.reduce((sum, mark) => sum + mark.marksObtained, 0);
+            const subjectTotalPossible = subjectMarks.reduce((sum, mark) => sum + mark.totalMarks, 0);
+            return { subjectName, percentage: subjectTotalPossible > 0 ? (subjectTotalObtained / subjectTotalPossible) * 100 : 0 };
+        });
+
+        const pieChartData = Object.entries(marksBySubject).map(([subjectName, subjectMarks], index) => ({
+            name: subjectName,
+            value: subjectMarks.reduce((sum, mark) => sum + mark.totalMarks, 0),
+            color: PIE_CHART_COLORS[index % PIE_CHART_COLORS.length]
+        })).filter(item => item.value > 0);
+
+        return { overallPercentage, pieChartData, subjectAverages };
+    }, [marks]);
+    
+    const totalPieValue = pieChartData.reduce((sum, i) => sum + i.value, 0);
+    const conicGradient = `conic-gradient(${pieChartData.map((item, index, arr) => {
+        let cumulativePercentage = arr.slice(0, index).reduce((sum, i) => sum + (i.value / totalPieValue) * 100, 0);
+        const percentage = (item.value / totalPieValue) * 100;
+        return `${item.color} ${cumulativePercentage}% ${cumulativePercentage + percentage}%`;
+    }).join(', ')})`;
 
     return (
         <div className="container mx-auto p-4 sm:p-8 space-y-12">
@@ -242,7 +288,50 @@ const HomePage: React.FC = () => {
              <div className="animate-fadeInDown">
                 <h1 className="text-3xl sm:text-4xl font-bold text-onBackground">Activity Hub</h1>
                 <p className="mt-2 text-lg text-onSurface">Welcome back, {currentUser?.username}! Here's your study overview.</p>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-white mt-6">
+             </div>
+
+            <Link to="/profile" className="block animate-fadeInDown group">
+                <div className="bg-surface/50 border border-gray-700 p-6 rounded-2xl shadow-lg hover:bg-surface/80 transition-colors duration-300 hover:border-primary/50">
+                    <h2 className="text-xl font-semibold text-onBackground mb-4 text-center">My Academic Progress</h2>
+                    {loadingMarks ? <p className="text-center text-onSurface">Loading progress...</p> : marks.length > 0 ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+                            <div className="flex justify-center">
+                                <div className="relative">
+                                    <div className="w-40 h-40 rounded-full transition-all duration-1000 ease-out" style={{ background: conicGradient }}></div>
+                                    <div className="absolute inset-4 bg-surface rounded-full flex items-center justify-center">
+                                        <div className="text-center">
+                                            <p className="text-3xl font-bold text-onBackground">{Math.round(overallPercentage)}<span className="text-xl opacity-70">%</span></p>
+                                            <p className="text-xs text-onSurface uppercase tracking-wider">Overall</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="w-full space-y-3">
+                                <h3 className="font-semibold text-onBackground text-base mb-2 text-center md:text-left">Subject Averages</h3>
+                                {pieChartData.map(item => {
+                                    const avg = subjectAverages.find(s => s.subjectName === item.name)?.percentage || 0;
+                                    return (
+                                        <div key={item.name} className="text-sm">
+                                            <div className="flex items-center justify-between mb-1">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }}></div>
+                                                    <span className="font-medium text-onSurface">{item.name}</span>
+                                                </div>
+                                                <span className="font-semibold text-onBackground">{avg.toFixed(0)}%</span>
+                                            </div>
+                                            <div className="w-full bg-surface rounded-full h-1.5"><div className="h-1.5 rounded-full" style={{ width: `${avg}%`, backgroundColor: item.color }}></div></div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    ) : (
+                        <p className="text-center text-onSurface py-8">No marks added yet. Click here to add them on your profile!</p>
+                    )}
+                </div>
+            </Link>
+
+             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-white">
                     <AnimatedStatCard icon={<UsersIcon className="w-8 h-8"/>} label="Partners" value={partners.length} colorClass="bg-gradient-to-br from-indigo-500 to-purple-600" />
                     <AnimatedStatCard icon={<UsersIcon className="w-8 h-8"/>} label="Groups" value={myGroups.length} colorClass="bg-gradient-to-br from-teal-500 to-cyan-600" />
                     <button onClick={openStudyModal} className="p-4 sm:p-6 rounded-xl flex items-center gap-4 bg-gradient-to-br from-yellow-400 to-amber-500 transition-transform hover:scale-105 shadow-lg hover:shadow-amber-500/30">
@@ -252,7 +341,6 @@ const HomePage: React.FC = () => {
                             <div className="text-sm font-medium uppercase tracking-wider text-left">Begin a focus session</div>
                         </div>
                     </button>
-                </div>
              </div>
 
              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

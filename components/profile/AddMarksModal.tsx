@@ -5,9 +5,11 @@ import { ALL_SUBJECTS } from '../../constants';
 const AddMarksModal: React.FC<{
     isOpen: boolean;
     onClose: () => void;
-    onAdd: (subjectId: number, marks: string) => Promise<void>;
+    onAdd: (subjectId: number, examName: string, marksObtained: number, totalMarks: number) => Promise<void>;
 }> = ({ isOpen, onClose, onAdd }) => {
-    const [marks, setMarks] = useState('');
+    const [examName, setExamName] = useState('');
+    const [marksObtained, setMarksObtained] = useState<string>('');
+    const [totalMarks, setTotalMarks] = useState<string>('');
     const [subjectId, setSubjectId] = useState<number | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState('');
@@ -19,18 +21,33 @@ const AddMarksModal: React.FC<{
             setError('Please select a subject.');
             return;
         }
-        if (!marks.trim()) {
-            setError('Please enter your marks.');
+        if (!examName.trim()) {
+            setError('Please enter the exam name.');
             return;
         }
+        const obtained = parseFloat(marksObtained);
+        const total = parseFloat(totalMarks);
+
+        if (isNaN(obtained) || isNaN(total) || obtained < 0 || total <= 0) {
+            setError('Please enter valid positive numbers for marks.');
+            return;
+        }
+        if (obtained > total) {
+            setError('Marks obtained cannot be greater than total marks.');
+            return;
+        }
+
         setIsSubmitting(true);
-        await onAdd(subjectId, marks.trim());
+        await onAdd(subjectId, examName.trim(), obtained, total);
         setIsSubmitting(false);
-        setMarks('');
+        // Reset form
+        setExamName('');
+        setMarksObtained('');
+        setTotalMarks('');
         setSubjectId(null);
         onClose();
     };
-
+    
     const inputClasses = "w-full p-2 border border-gray-600 rounded-md bg-gray-700 text-onBackground focus:ring-primary focus:border-primary";
 
     return (
@@ -48,9 +65,19 @@ const AddMarksModal: React.FC<{
                         ))}
                     </div>
                 </div>
-                <div>
-                    <label className="block font-semibold text-onSurface">Marks</label>
-                    <input type="text" value={marks} onChange={e => setMarks(e.target.value)} required className={inputClasses} placeholder="e.g., A+, 95%, 4.0 GPA" />
+                 <div>
+                    <label className="block font-semibold text-onSurface">Exam Name</label>
+                    <input type="text" value={examName} onChange={e => setExamName(e.target.value)} required className={inputClasses} placeholder="e.g., Midterm 1, Final Exam" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <label className="block font-semibold text-onSurface">Marks Obtained</label>
+                        <input type="number" value={marksObtained} onChange={e => setMarksObtained(e.target.value)} required className={inputClasses} placeholder="e.g., 85" />
+                    </div>
+                    <div>
+                        <label className="block font-semibold text-onSurface">Out of (Total Marks)</label>
+                        <input type="number" value={totalMarks} onChange={e => setTotalMarks(e.target.value)} required className={inputClasses} placeholder="e.g., 100" />
+                    </div>
                 </div>
                 {error && <p className="text-danger text-sm">{error}</p>}
                 <div className="flex justify-end gap-4 mt-6">

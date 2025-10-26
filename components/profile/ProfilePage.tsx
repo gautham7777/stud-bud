@@ -137,10 +137,18 @@ const ProfilePage: React.FC = () => {
     
     const handleDeleteMaterial = async (materialId: string) => { await deleteDoc(doc(db, "studyMaterials", materialId)); };
 
-    const handleAddMark = async (subjectId: number, marksValue: string) => {
+    const handleAddMark = async (subjectId: number, examName: string, marksObtained: number, totalMarks: number) => {
         const subject = ALL_SUBJECTS.find(s => s.id === subjectId);
         if (!subject || !currentUser) return;
-        await addDoc(collection(db, "profiles", currentUser.uid, "marks"), { userId: currentUser.uid, subjectId, subjectName: subject.name, marks: marksValue, createdAt: Date.now() });
+        await addDoc(collection(db, "profiles", currentUser.uid, "marks"), {
+            userId: currentUser.uid,
+            subjectId,
+            subjectName: subject.name,
+            examName,
+            marksObtained,
+            totalMarks,
+            createdAt: Date.now()
+        });
     };
 
     const handleDeleteMark = async (markId: string) => { if (!currentUser) return; await deleteDoc(doc(db, "profiles", currentUser.uid, "marks", markId)); };
@@ -209,20 +217,7 @@ const ProfilePage: React.FC = () => {
                                 <button onClick={() => setIsMarksModalOpen(true)} className="px-4 py-1.5 bg-secondary text-white text-sm font-semibold rounded-lg hover:bg-teal-500 transition">Add Mark</button>
                             </div>
                             {marks.length > 0 ? (
-                                <>
-                                    <MarksGraph marks={marks} />
-                                    <div className="mt-8 space-y-2">
-                                        {marks.map(mark => (
-                                            <div key={mark.id} className="flex items-center justify-between p-3 bg-background rounded-lg">
-                                                <span className="font-semibold text-onSurface">{mark.subjectName}</span>
-                                                <div className="flex items-center gap-3">
-                                                    <span className="text-amber-400 font-bold">{mark.marks}</span>
-                                                    <button onClick={() => handleDeleteMark(mark.id)} className="p-1 text-danger/70 hover:text-danger hover:bg-danger/10 rounded-full transition"><TrashIcon className="w-4 h-4" /></button>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </>
+                                <MarksGraph marks={marks} onDeleteMark={handleDeleteMark} />
                             ) : <p className="text-center text-onSurface py-4">No marks added yet. Add a mark to see your progress graph!</p>}
                         </div>
                     )}
