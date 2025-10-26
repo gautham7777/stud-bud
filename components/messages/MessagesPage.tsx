@@ -221,7 +221,7 @@ const MessagesPage: React.FC = () => {
 
     return (
         <div className="container mx-auto p-4 md:p-8">
-            <h1 className="text-3xl font-bold mb-6">Messages</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold mb-6">Messages</h1>
             <div className="flex flex-col md:flex-row rounded-lg h-[calc(100vh-12rem)] border border-gray-700/50 overflow-hidden">
                 {/* Buddies List */}
                 {showContacts && (

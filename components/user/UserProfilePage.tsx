@@ -74,13 +74,13 @@ const UserProfilePage: React.FC = () => {
     );
     
     return (
-        <div className="container mx-auto p-8">
+        <div className="container mx-auto p-4 sm:p-8">
             <div className="flex flex-col items-center mb-8">
-                <Avatar user={user} className="w-32 h-32 text-4xl mb-4" />
-                <h1 className="text-4xl font-bold text-onBackground">{user.username}</h1>
+                <Avatar user={user} className="w-24 h-24 sm:w-32 sm:h-32 text-4xl mb-4" />
+                <h1 className="text-3xl sm:text-4xl font-bold text-onBackground">{user.username}</h1>
             </div>
 
-            <div className="bg-surface p-8 rounded-lg shadow-lg border border-gray-700 mb-8 grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="bg-surface p-6 sm:p-8 rounded-lg shadow-lg border border-gray-700 mb-8 grid grid-cols-1 md:grid-cols-3 gap-6">
                 <ProfileDetailCard title="Learning Style">
                     <span className="bg-primary/20 text-indigo-300 text-sm font-medium px-2.5 py-0.5 rounded-full">{profile.learningStyle}</span>
                 </ProfileDetailCard>
@@ -92,7 +92,7 @@ const UserProfilePage: React.FC = () => {
                 </ProfileDetailCard>
             </div>
             
-             <div className="bg-surface p-8 rounded-lg shadow-lg border border-gray-700">
+             <div className="bg-surface p-6 sm:p-8 rounded-lg shadow-lg border border-gray-700">
                 <h2 className="text-2xl font-bold mb-6 text-onBackground">Study Materials</h2>
                 {materials.length > 0 ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

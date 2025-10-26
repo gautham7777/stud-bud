@@ -223,13 +223,13 @@ const RequestsPage: React.FC = () => {
     }
     
     return (
-        <div className="container mx-auto p-8">
+        <div className="container mx-auto p-4 sm:p-8">
             <CreatePostModal isOpen={isCreateModalOpen} onClose={() => setCreateModalOpen(false)} onCreate={handleCreatePost} />
             <div className="flex justify-between items-center mb-6">
-                <h1 className="text-4xl font-bold">Study Requests</h1>
+                <h1 className="text-3xl sm:text-4xl font-bold">Study Requests</h1>
                 <button onClick={() => setCreateModalOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-700 to-indigo-500 text-white font-semibold rounded-lg hover:from-indigo-600 hover:to-indigo-400 transition-colors shadow-lg hover:shadow-primary/30">
                    <PlusCircleIcon className="w-5 h-5" />
-                   New Request
+                   <span className="hidden sm:inline">New Request</span>
                 </button>
             </div>
             {loading ? <p>Loading requests...</p> : 

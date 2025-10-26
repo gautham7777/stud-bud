@@ -4,58 +4,93 @@ import { useAuth } from './AuthProvider';
 import { BookOpenIcon, UsersIcon, ChatBubbleIcon, ClipboardListIcon, SparklesIcon, PencilIcon, CheckCircleIcon, ShieldCheckIcon } from '../icons';
 
 const AuthPage: React.FC = () => {
-    const { login, signup, currentUser } = useAuth();
+    const { login, signup, sendPasswordReset, currentUser } = useAuth();
     const navigate = useNavigate();
     
     if (currentUser) {
         return <Navigate to="/" replace />;
     }
 
-    const [isLogin, setIsLogin] = useState(true);
+    const [view, setView] = useState<'login' | 'signup' | 'forgotPassword'>('login');
     const [email, setEmail] = useState('');
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [error, setError] = useState('');
+    const [message, setMessage] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isInputFocused, setIsInputFocused] = useState(false);
 
-    const handleSubmit = async (e: React.FormEvent) => {
+    const handleFormSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
-        setIsSubmitting(true);
+        setMessage('');
 
-        if (isLogin) {
-            try {
-                await login(email, password);
-                navigate('/');
-            } catch (err: any) {
-                setError(err.message || 'Failed to sign in.');
-                setIsSubmitting(false);
-            }
-        } else {
-            if (password !== confirmPassword) {
-                setError('Passwords do not match.');
-                setIsSubmitting(false);
-                return;
-            }
-            try {
-                await signup(email, username, password);
-                navigate('/');
-            } catch (err: any) {
-                setError(err.message || "Failed to create account.");
-                setIsSubmitting(false);
-            }
+        if (view === 'login') {
+            handleLogin();
+        } else { // signup
+            handleSignup();
         }
     };
-    
-    const toggleForm = () => {
-      setIsLogin(!isLogin);
-      setError('');
+
+    const handleLogin = async () => {
+        setIsSubmitting(true);
+        try {
+            await login(email, password);
+            navigate('/');
+        } catch (err: any) {
+            setError(err.message || 'Failed to sign in.');
+        } finally {
+            setIsSubmitting(false);
+        }
     }
+
+    const handleSignup = async () => {
+        if (password !== confirmPassword) {
+            setError('Passwords do not match.');
+            return;
+        }
+        setIsSubmitting(true);
+        try {
+            await signup(email, username, password);
+            setMessage('Account created! Please check your email for a verification link to complete registration.');
+            setView('login');
+            setPassword('');
+            setConfirmPassword('');
+        } catch (err: any) {
+            setError(err.message || 'Failed to create account.');
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const handlePasswordReset = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setError('');
+        setMessage('');
+        if (!email) {
+            setError('Please enter your email address.');
+            return;
+        }
+        setIsSubmitting(true);
+        try {
+            await sendPasswordReset(email);
+            setMessage('Password reset email sent! Please check your inbox (and spam folder).');
+        } catch (err: any) {
+            setError(err.message || 'Failed to send reset email.');
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
 
     const inputClasses = "appearance-none block w-full px-3 py-2 border border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm bg-gray-700 text-onBackground";
     
+    const getTitle = () => {
+        if (view === 'login') return 'Sign in to your account';
+        if (view === 'signup') return 'Create a new account';
+        return 'Reset your password';
+    };
+
     const whyUsPoints = [
       {
         icon: UsersIcon,
@@ -83,66 +118,94 @@ const AuthPage: React.FC = () => {
         { icon: ChatBubbleIcon, name: "Instant Messaging", description: "Communicate with your study buddies and groups through our integrated chat." },
     ];
 
-
     return (
         <div className="bg-background text-onBackground w-full">
             {/* Auth Screen */}
-            <section className="h-screen flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative overflow-hidden">
+            <section className="h-screen flex flex-col justify-center py-8 sm:py-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
 
                 <div className="relative z-10">
                     <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
                         <div className="flex items-center justify-center gap-3">
                             <BookOpenIcon className="h-10 w-auto text-primary" />
-                            <h1 className="text-4xl font-bold text-onBackground">StudyBuddy.com</h1>
+                            <h1 className="text-3xl sm:text-4xl font-bold text-onBackground">StudyBuddy.com</h1>
                         </div>
                         <h2 className="mt-2 text-center text-lg font-medium text-onSurface">
-                            {isLogin ? 'Sign in to your account' : 'Create a new account' }
+                            {getTitle()}
                         </h2>
                     </div>
                     <div className='mt-8 sm:mx-auto sm:w-full sm:max-w-md'>
                         <div className="bg-surface/80 backdrop-blur-md py-8 px-4 shadow-2xl shadow-primary/10 sm:rounded-lg sm:px-10 border border-gray-700">
-                            <form className="space-y-6" onSubmit={handleSubmit}>
-                                {!isLogin && (
+                            
+                             {view === 'forgotPassword' ? (
+                                <form className="space-y-6" onSubmit={handlePasswordReset}>
+                                    <p className="text-sm text-center text-onSurface">Enter your email and we'll send you a link to get back into your account.</p>
                                     <div>
-                                        <label htmlFor="username" className="block text-sm font-medium text-onSurface">Username</label>
-                                        <div className="mt-1"><input id="username" name="username" type="text" required value={username} onChange={e => setUsername(e.target.value)} className={inputClasses} onFocus={() => setIsInputFocused(true)} onBlur={() => setIsInputFocused(false)}/></div>
+                                        <label htmlFor="email" className="block text-sm font-medium text-onSurface">Email address</label>
+                                        <div className="mt-1"><input id="email" name="email" type="email" autoComplete="email" required value={email} onChange={e => setEmail(e.target.value)} className={inputClasses} onFocus={() => setIsInputFocused(true)} onBlur={() => setIsInputFocused(false)} /></div>
                                     </div>
-                                )}
-                                <div>
-                                    <label htmlFor="email" className="block text-sm font-medium text-onSurface">Email address</label>
-                                    <div className="mt-1"><input id="email" name="email" type="email" autoComplete="email" required value={email} onChange={e => setEmail(e.target.value)} className={inputClasses} onFocus={() => setIsInputFocused(true)} onBlur={() => setIsInputFocused(false)} /></div>
-                                </div>
-                                <div>
-                                    <label htmlFor="password"  className="block text-sm font-medium text-onSurface">Password</label>
-                                    <div className="mt-1"><input id="password" name="password" type="password" required value={password} onChange={e => setPassword(e.target.value)} className={inputClasses} onFocus={() => setIsInputFocused(true)} onBlur={() => setIsInputFocused(false)}/></div>
-                                </div>
-                                {!isLogin && (
+                                    {error && <p className="text-sm text-red-400 mt-2 text-center">{error}</p>}
+                                    {message && <p className="text-sm text-green-400 mt-2 text-center">{message}</p>}
                                     <div>
-                                        <label htmlFor="confirm-password"  className="block text-sm font-medium text-onSurface">Confirm Password</label>
-                                        <div className="mt-1"><input id="confirm-password" name="confirm-password" type="password" required value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className={inputClasses} onFocus={() => setIsInputFocused(true)} onBlur={() => setIsInputFocused(false)}/></div>
+                                        <button type="submit" disabled={isSubmitting} className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-gradient-to-r from-indigo-700 to-indigo-500 hover:from-indigo-600 hover:to-indigo-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:opacity-50 transition-all duration-[260ms] transform active:scale-95 hover:shadow-lg hover:shadow-primary/30">
+                                            {isSubmitting ? 'Sending...' : 'Send Reset Link'}
+                                        </button>
                                     </div>
-                                )}
-                                {error && <p className="text-sm text-red-400 mt-2 text-center">{error}</p>}
-                                <div>
-                                    <button type="submit" disabled={isSubmitting} className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-gradient-to-r from-indigo-700 to-indigo-500 hover:from-indigo-600 hover:to-indigo-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:opacity-50 transition-all duration-[260ms] transform active:scale-95 hover:shadow-lg hover:shadow-primary/30">
-                                        {isSubmitting ? 'Processing...' : (isLogin ? 'Sign in' : 'Create Account')}
-                                    </button>
-                                </div>
-                            </form>
-                            {isLogin && (
+                                    <div className="mt-4 text-sm text-center">
+                                        <button type="button" onClick={() => { setView('login'); setError(''); setMessage(''); }} className="font-medium text-primary hover:text-indigo-400">
+                                            Back to Sign In
+                                        </button>
+                                    </div>
+                                </form>
+                            ) : (
+                                <form className="space-y-6" onSubmit={handleFormSubmit}>
+                                    {view === 'signup' && (
+                                        <div>
+                                            <label htmlFor="username" className="block text-sm font-medium text-onSurface">Username</label>
+                                            <div className="mt-1"><input id="username" name="username" type="text" required value={username} onChange={e => setUsername(e.target.value)} className={inputClasses} onFocus={() => setIsInputFocused(true)} onBlur={() => setIsInputFocused(false)}/></div>
+                                        </div>
+                                    )}
+                                    <div>
+                                        <label htmlFor="email" className="block text-sm font-medium text-onSurface">Email address</label>
+                                        <div className="mt-1"><input id="email" name="email" type="email" autoComplete="email" required value={email} onChange={e => setEmail(e.target.value)} className={inputClasses} onFocus={() => setIsInputFocused(true)} onBlur={() => setIsInputFocused(false)} /></div>
+                                    </div>
+                                    <div>
+                                        <label htmlFor="password"  className="block text-sm font-medium text-onSurface">Password</label>
+                                        <div className="mt-1"><input id="password" name="password" type="password" required value={password} onChange={e => setPassword(e.target.value)} className={inputClasses} onFocus={() => setIsInputFocused(true)} onBlur={() => setIsInputFocused(false)}/></div>
+                                    </div>
+                                    {view === 'signup' && (
+                                        <div>
+                                            <label htmlFor="confirm-password"  className="block text-sm font-medium text-onSurface">Confirm Password</label>
+                                            <div className="mt-1"><input id="confirm-password" name="confirm-password" type="password" required value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className={inputClasses} onFocus={() => setIsInputFocused(true)} onBlur={() => setIsInputFocused(false)}/></div>
+                                        </div>
+                                    )}
+                                    {error && <p className="text-sm text-red-400 mt-2 text-center">{error}</p>}
+                                    {message && <p className="text-sm text-green-400 mt-2 text-center">{message}</p>}
+                                    <div>
+                                        <button type="submit" disabled={isSubmitting} className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-gradient-to-r from-indigo-700 to-indigo-500 hover:from-indigo-600 hover:to-indigo-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:opacity-50 transition-all duration-[260ms] transform active:scale-95 hover:shadow-lg hover:shadow-primary/30">
+                                            {isSubmitting ? 'Processing...' : (view === 'login' ? 'Sign in' : 'Create Account')}
+                                        </button>
+                                    </div>
+                                </form>
+                            )}
+
+                            {view === 'login' && (
                                 <div className="mt-4 text-sm text-center">
-                                    <a href="#" className="font-medium text-primary hover:text-indigo-400">
+                                    <button type="button" onClick={() => { setView('forgotPassword'); setError(''); setMessage(''); }} className="font-medium text-primary hover:text-indigo-400">
                                         Forgot your password?
-                                    </a>
+                                    </button>
                                 </div>
                             )}
-                            <div className="mt-6">
-                                <div className="relative"><div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-600" /></div><div className="relative flex justify-center text-sm"><span className="px-2 bg-surface text-onSurface">Or</span></div></div>
-                                <div className="mt-6"><button onClick={toggleForm} className="w-full inline-flex justify-center py-2 px-4 border border-gray-600 rounded-md shadow-sm bg-surface text-sm font-medium text-onSurface hover:bg-gray-700 transition-colors duration-[195ms]">
-                                    {isLogin ? 'Create an account' : 'Sign in instead'}
-                                    </button>
+                            
+                            {(view === 'login' || view === 'signup') && (
+                                <div className="mt-6">
+                                    <div className="relative"><div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-600" /></div><div className="relative flex justify-center text-sm"><span className="px-2 bg-surface text-onSurface">Or</span></div></div>
+                                    <div className="mt-6">
+                                        <button onClick={() => { setView(view === 'login' ? 'signup' : 'login'); setError(''); setMessage(''); }} className="w-full inline-flex justify-center py-2 px-4 border border-gray-600 rounded-md shadow-sm bg-surface text-sm font-medium text-onSurface hover:bg-gray-700 transition-colors duration-[195ms]">
+                                            {view === 'login' ? 'Create an account' : 'Sign in instead'}
+                                        </button>
+                                    </div>
                                 </div>
-                            </div>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -156,9 +219,9 @@ const AuthPage: React.FC = () => {
                 </div>
             </section>
 
-            <section id="why-us" className="py-24 px-4 sm:px-6 lg:px-8">
+            <section id="why-us" className="py-16 sm:py-24 px-4 sm:px-6 lg:px-8">
                 <div className="container mx-auto text-center">
-                    <h2 className="text-3xl font-bold tracking-tight text-onBackground sm:text-4xl">Why Choose StudyBuddy?</h2>
+                    <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-onBackground">Why Choose StudyBuddy?</h2>
                     <p className="mt-4 text-lg leading-8 text-onSurface">Connect, collaborate, and conquer your courses like never before.</p>
                     <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-12">
                         {whyUsPoints.map((point) => (
@@ -174,9 +237,9 @@ const AuthPage: React.FC = () => {
                 </div>
             </section>
             
-            <section id="features" className="py-24 px-4 sm:px-6 lg:px-8 bg-surface/50">
+            <section id="features" className="py-16 sm:py-24 px-4 sm:px-6 lg:px-8 bg-surface/50">
                  <div className="container mx-auto text-center">
-                    <h2 className="text-3xl font-bold tracking-tight text-onBackground sm:text-4xl">Powerful Features to Boost Your Learning</h2>
+                    <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-onBackground">Powerful Features to Boost Your Learning</h2>
                     <p className="mt-4 text-lg leading-8 text-onSurface">All the tools you need for academic success, in one place.</p>
                     <div className="mt-16 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
                         {featurePoints.map(feature => (
@@ -190,10 +253,10 @@ const AuthPage: React.FC = () => {
                  </div>
             </section>
 
-            <section id="security" className="py-24 px-4 sm:px-6 lg:px-8">
+            <section id="security" className="py-16 sm:py-24 px-4 sm:px-6 lg:px-8">
                  <div className="container mx-auto text-center">
                     <ShieldCheckIcon className="h-16 w-16 text-green-400 mx-auto mb-4"/>
-                    <h2 className="text-3xl font-bold tracking-tight text-onBackground sm:text-4xl">Your Safety is Our Priority</h2>
+                    <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-onBackground">Your Safety is Our Priority</h2>
                     <p className="mt-4 text-lg leading-8 text-onSurface max-w-3xl mx-auto">We are committed to providing a secure and positive environment for focused learning.</p>
                     <div className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-8 text-left max-w-4xl mx-auto">
                         <div className="bg-surface p-6 rounded-lg border border-gray-700">
@@ -208,17 +271,15 @@ const AuthPage: React.FC = () => {
                  </div>
             </section>
             
-            <section id="creators" className="py-24 px-4 sm:px-6 lg:px-8 bg-surface/50">
+            <section id="creators" className="py-16 sm:py-24 px-4 sm:px-6 lg:px-8 bg-surface/50">
                  <div className="container mx-auto text-center">
-                    <h2 className="text-3xl font-bold tracking-tight text-onBackground sm:text-4xl">Meet the Team</h2>
-                    <p className="mt-4 text-lg leading-8 text-onSurface">The passionate creators behind StudyBuddy.</p>
-                    <div className="mt-16 grid grid-cols-2 md:grid-cols-4 gap-8">
-                        {['Ishan', 'Gautham', 'Jude', 'Wilton'].map(name => (
-                            <div key={name} className="flex flex-col items-center">
-                                <UsersIcon className="h-20 w-20 text-onSurface"/>
-                                <h3 className="mt-4 text-xl font-semibold text-onBackground">{name}</h3>
-                            </div>
-                        ))}
+                    <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-onBackground">Meet the Creator</h2>
+                    <p className="mt-4 text-lg leading-8 text-onSurface">The passionate creator behind StudyBuddy.</p>
+                    <div className="mt-16 flex justify-center">
+                        <div className="flex flex-col items-center">
+                            <UsersIcon className="h-24 w-24 text-primary"/>
+                            <h3 className="mt-4 text-2xl font-semibold text-onBackground">GAUTHAM</h3>
+                        </div>
                     </div>
                  </div>
             </section>

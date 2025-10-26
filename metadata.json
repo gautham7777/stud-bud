@@ -1,5 +1,8 @@
 {
   "name": "Study Buddy Finder",
   "description": "A comprehensive platform for students to find compatible study partners and groups. Users can create detailed profiles, search for matches based on subjects and learning styles, communicate via in-app messaging, and collaborate in shared workspaces.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "microphone",
+    "camera"
+  ]
 }

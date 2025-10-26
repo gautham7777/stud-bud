@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
-import { BookOpenIcon, UsersIcon, ChatBubbleIcon, UserCircleIcon, LogoutIcon, SearchIcon, ClipboardListIcon, XCircleIcon, CompassIcon, ClockIcon } from '../icons';
+import { BookOpenIcon, UsersIcon, ChatBubbleIcon, UserCircleIcon, LogoutIcon, SearchIcon, ClipboardListIcon, XCircleIcon, CompassIcon, ClockIcon, SparklesIcon } from '../icons';
 import Avatar from './Avatar';
 import { db } from '../../firebase';
 import { collection, query, orderBy, limit, getDocs, doc, getDoc } from 'firebase/firestore';
@@ -75,6 +75,7 @@ const Header: React.FC = () => {
         { path: '/requests', label: 'Requests', icon: ClipboardListIcon },
         { path: '/messages', label: 'Messages', icon: ChatBubbleIcon },
         { path: '/discover', label: 'Discover', icon: CompassIcon },
+        { path: '/ai', label: 'AI Tools', icon: SparklesIcon },
     ];
     
     const profileItem = { path: '/profile', label: 'Profile', icon: UserCircleIcon };
@@ -123,7 +124,7 @@ const Header: React.FC = () => {
                     <div className="flex items-center">
                         <Link to="/" className="flex-shrink-0 flex items-center gap-2 text-primary font-bold text-xl transition-transform hover:scale-105">
                             <BookOpenIcon className="h-8 w-8" />
-                            <span className="text-onBackground">StudyBuddy</span>
+                            <span className="text-onBackground hidden sm:inline">StudyBuddy</span>
                         </Link>
                         <div className="hidden md:flex items-center ml-10">
                             <div className="flex items-baseline space-x-2">
@@ -166,14 +167,14 @@ const Header: React.FC = () => {
                         </div>
                     </div>
                     
-                    <div className="flex items-center gap-2 sm:gap-4">
-                        <form onSubmit={handleSearch} className="relative">
+                    <div className="flex items-center gap-2 sm:gap-4 flex-grow sm:flex-grow-0 ml-4">
+                        <form onSubmit={handleSearch} className="relative flex-grow max-w-xs sm:flex-grow-0 sm:w-48">
                             <input
                                 type="text"
                                 value={searchQuery}
                                 onChange={e => setSearchQuery(e.target.value)}
                                 placeholder="Find users..."
-                                className="bg-gray-700/50 text-onBackground placeholder-gray-400 rounded-full py-2 pl-4 pr-10 focus:outline-none focus:ring-2 focus:ring-primary focus:bg-gray-700 transition-all w-32 focus:w-48"
+                                className="bg-gray-700/50 text-onBackground placeholder-gray-400 rounded-full py-2 pl-4 pr-10 focus:outline-none focus:ring-2 focus:ring-primary focus:bg-gray-700 transition-all w-full"
                             />
                             <button type="submit" className="absolute inset-y-0 right-0 flex items-center pr-3">
                                 <SearchIcon className="h-5 w-5 text-gray-400 hover:text-primary" />

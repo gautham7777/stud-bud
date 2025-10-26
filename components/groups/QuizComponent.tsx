@@ -69,7 +69,7 @@ const QuizComponent: React.FC<{ group: StudyGroup }> = ({ group }) => {
             const prompt = `Generate a 5-question multiple choice quiz about ${group.subjectName}. For each question, provide 4 options and indicate the correct answer. Format the output as a JSON object with a "questions" array. Each object in the array should have "question", "options" (an array of 4 strings), and "correctAnswer" (a string matching one of the options).`;
             
             const geminiResponse = await ai.models.generateContent({
-                model: "gemini-2.5-flash",
+                model: "gemini-flash-lite-latest",
                 contents: prompt,
                 config: {
                     responseMimeType: "application/json",

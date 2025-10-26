@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
-import { doc, onSnapshot, getDoc, updateDoc, collection, query, orderBy, addDoc, writeBatch, getDocs, arrayRemove, arrayUnion, setDoc } from 'firebase/firestore';
+import { doc, onSnapshot, getDoc, updateDoc, collection, query, orderBy, addDoc, writeBatch, getDocs, arrayRemove, arrayUnion, setDoc, where } from 'firebase/firestore';
 import { db, storage } from '../../firebase';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
-import { StudyGroup, User, SharedContent, Message, ScheduledSession } from '../../types';
+import { StudyGroup, User, SharedContent, Message, ScheduledSession, GroupJoinRequest } from '../../types';
 import { sanitizeGroup } from '../../lib/helpers';
 import LoadingSpinner from '../core/LoadingSpinner';
 import Avatar from '../core/Avatar';
@@ -39,6 +39,7 @@ const GroupPage: React.FC = () => {
     const [isScheduleModalOpen, setScheduleModalOpen] = useState(false);
     const [uploadError, setUploadError] = useState('');
     const [viewedImageUrl, setViewedImageUrl] = useState<string | null>(null);
+    const [joinRequests, setJoinRequests] = useState<GroupJoinRequest[]>([]);
 
     if (!id) {
         return <div className="container mx-auto p-8 animate-fadeInUp text-center"><h1 className="text-2xl">Group Not Found</h1><p>The link may be broken or the group may have been deleted.</p></div>;
@@ -88,10 +89,18 @@ const GroupPage: React.FC = () => {
             setMessages(fetchedMessages);
         });
 
+        // Fetch join requests if current user is the host
+        const requestsQuery = query(collection(db, "groupJoinRequests"), where("groupId", "==", id), where("status", "==", "pending"));
+        const unsubRequests = onSnapshot(requestsQuery, (snapshot) => {
+            const requestData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as GroupJoinRequest));
+            setJoinRequests(requestData);
+        });
+
         return () => {
             unsubGroup();
             unsubContent();
             unsubMessages();
+            unsubRequests();
         };
     }, [id, contentDocRef, groupDocRef]);
     
@@ -283,6 +292,18 @@ const GroupPage: React.FC = () => {
         await updateDoc(groupDocRef, { scheduledSession: null });
     };
 
+    const handleRequestResponse = async (request: GroupJoinRequest, status: 'accepted' | 'declined') => {
+        const requestRef = doc(db, "groupJoinRequests", request.id);
+        if (status === 'accepted') {
+            const batch = writeBatch(db);
+            batch.update(groupDocRef, { memberIds: arrayUnion(request.fromUserId) });
+            batch.update(requestRef, { status: 'accepted' });
+            await batch.commit();
+        } else {
+            await updateDoc(requestRef, { status: 'declined' });
+        }
+    };
+
     if (loading) return <LoadingSpinner />;
     if (!group) return <div className="container mx-auto p-8 animate-fadeInUp text-center"><h1 className="text-2xl">Group not found.</h1></div>
     if (!sharedContent) return <LoadingSpinner />;
@@ -292,7 +313,7 @@ const GroupPage: React.FC = () => {
     const showPinnedSession = group.scheduledSession && group.scheduledSession.scheduledAt > Date.now();
 
     return (
-        <div className="container mx-auto p-8">
+        <div className="container mx-auto p-4 sm:p-8">
             <ScheduleSessionModal isOpen={isScheduleModalOpen} onClose={() => setScheduleModalOpen(false)} onSchedule={handleScheduleSession} />
             <Modal isOpen={!!viewedImageUrl} onClose={() => setViewedImageUrl(null)} className="max-w-4xl p-0 bg-transparent border-none shadow-none flex justify-center items-center" showCloseButton={false}>
                 {viewedImageUrl && (
@@ -306,7 +327,7 @@ const GroupPage: React.FC = () => {
                         type="text" 
                         value={newName} 
                         onChange={(e) => setNewName(e.target.value)} 
-                        className="text-4xl font-bold bg-transparent border-b-2 border-primary focus:outline-none text-onBackground"
+                        className="text-3xl sm:text-4xl font-bold bg-transparent border-b-2 border-primary focus:outline-none text-onBackground"
                         onBlur={handleUpdateName}
                         onKeyDown={e => e.key === 'Enter' && handleUpdateName()}
                         autoFocus
@@ -316,7 +337,7 @@ const GroupPage: React.FC = () => {
                 </div>
             ) : (
                 <div className="flex items-center gap-4 mb-2">
-                    <h1 className="text-4xl font-bold text-onBackground">{group.name}</h1>
+                    <h1 className="text-3xl sm:text-4xl font-bold text-onBackground">{group.name}</h1>
                     {isCreator && (
                         <button onClick={() => { setIsEditingName(true); setNewName(group.name); }} className="text-onSurface hover:text-primary" aria-label="Edit group name">
                             <PencilIcon className="w-6 h-6"/>
@@ -344,7 +365,7 @@ const GroupPage: React.FC = () => {
                      <div className="w-full bg-surface p-6 rounded-lg shadow-md border border-gray-700">
                         <h2 className="text-2xl font-semibold mb-4 text-onBackground text-center">Shared Scratchpad</h2>
                         <textarea 
-                            className="w-full h-96 p-4 border border-gray-600 rounded-lg shadow-inner font-mono text-sm bg-background text-onBackground focus:ring-primary focus:border-primary"
+                            className="w-full h-80 sm:h-96 p-4 border border-gray-600 rounded-lg shadow-inner font-mono text-sm bg-background text-onBackground focus:ring-primary focus:border-primary"
                             value={sharedContent.scratchpad}
                             onChange={(e) => handleScratchpadChange(e.target.value)}
                         />
@@ -422,6 +443,25 @@ const GroupPage: React.FC = () => {
                                 </div>
                             )}
                          </div>
+                        {isCreator && joinRequests.length > 0 && (
+                            <div className="mb-4">
+                                <h3 className="font-semibold text-amber-400 mb-2">Join Requests ({joinRequests.length})</h3>
+                                <div className="space-y-2 max-h-40 overflow-y-auto pr-2">
+                                    {joinRequests.map(req => (
+                                        <div key={req.id} className="flex items-center justify-between p-2 bg-background rounded-md">
+                                            <div className="flex items-center gap-2">
+                                                <Avatar user={{ uid: req.fromUserId, username: req.fromUsername, email: '', photoURL: req.fromUserPhotoURL}} className="w-8 h-8" />
+                                                <span className="text-sm font-semibold text-onSurface">{req.fromUsername}</span>
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => handleRequestResponse(req, 'accepted')} className="p-1 text-green-400 hover:bg-green-500/20 rounded-full transition-colors"><CheckCircleIcon className="w-5 h-5"/></button>
+                                                <button onClick={() => handleRequestResponse(req, 'declined')} className="p-1 text-red-400 hover:bg-red-500/20 rounded-full transition-colors"><XCircleIcon className="w-5 h-5"/></button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                          <div className="relative">
                             <div className="grid grid-cols-1 gap-2">
                                 <button onClick={() => setScheduleModalOpen(true)} className="w-full text-center py-2 bg-secondary/80 hover:bg-secondary rounded-lg transition-colors font-semibold flex items-center justify-center gap-2">

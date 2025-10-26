@@ -21,6 +21,7 @@ import MessagesPage from './components/messages/MessagesPage';
 import GroupPage from './components/groups/GroupPage';
 import UserProfilePage from './components/user/UserProfilePage';
 import DiscoverPage from './components/discover/DiscoverPage';
+import AIPage from './components/ai/AIPage';
 
 const App: React.FC = () => {
     return (
@@ -43,7 +44,7 @@ const MainApp: React.FC = () => {
     useEffect(() => {
         const timer = setTimeout(() => {
             setIsAestheticLoading(false);
-        }, 4000); // Should match loading screen fadeout duration
+        }, 6000); // Should match loading screen fadeout duration
         return () => clearTimeout(timer);
     }, []);
 
@@ -51,7 +52,7 @@ const MainApp: React.FC = () => {
 
     useEffect(() => {
         if (isAppReady && location.pathname !== displayedLocation.pathname) {
-            const routeOrder = ['/', '/groups', '/requests', '/messages', '/discover', '/profile'];
+            const routeOrder = ['/', '/groups', '/requests', '/messages', '/discover', '/ai', '/profile'];
             const oldIndex = routeOrder.indexOf(displayedLocation.pathname);
             const newIndex = routeOrder.indexOf(location.pathname);
             
@@ -65,7 +66,7 @@ const MainApp: React.FC = () => {
 
     const handleAnimationEnd = () => {
         if (transitionClass.includes('Out') || transitionClass.includes('fadeOut')) {
-            const routeOrder = ['/', '/groups', '/requests', '/messages', '/discover', '/profile'];
+            const routeOrder = ['/', '/groups', '/requests', '/messages', '/discover', '/ai', '/profile'];
             const oldIndex = routeOrder.indexOf(displayedLocation.pathname);
             const newIndex = routeOrder.indexOf(location.pathname);
 
@@ -103,6 +104,7 @@ const MainApp: React.FC = () => {
                             <Route path="/requests" element={<ProtectedRoute><RequestsPage /></ProtectedRoute>} />
                             <Route path="/messages" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
                             <Route path="/discover" element={<ProtectedRoute><DiscoverPage /></ProtectedRoute>} />
+                            <Route path="/ai" element={<ProtectedRoute><AIPage /></ProtectedRoute>} />
                             <Route path="/group/:id" element={<ProtectedRoute><GroupPage /></ProtectedRoute>} />
                             <Route path="/user/:username" element={<ProtectedRoute><UserProfilePage /></ProtectedRoute>} />
                             <Route path="*" element={<Navigate to={currentUser ? "/" : "/auth"} />} />

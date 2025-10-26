@@ -81,6 +81,18 @@ export interface StudyRequest {
   postId: string;
 }
 
+export interface GroupJoinRequest {
+  id: string;
+  groupId: string;
+  groupName: string;
+  fromUserId: string;
+  fromUsername: string;
+  fromUserPhotoURL?: string;
+  toUserId: string; // Host's UID
+  status: 'pending' | 'accepted' | 'declined';
+  createdAt: number;
+}
+
 export interface StudyPost {
   id: string;
   creatorId: string;

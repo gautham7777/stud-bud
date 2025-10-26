@@ -147,7 +147,7 @@ const DiscoverPage: React.FC = () => {
     return (
         <div className="container mx-auto p-4 md:p-8 max-w-3xl">
             {commentModalPostId && <CommentModal postId={commentModalPostId} onClose={() => setCommentModalPostId(null)} />}
-            <h1 className="text-4xl font-bold mb-6">Discover</h1>
+            <h1 className="text-3xl sm:text-4xl font-bold mb-6">Discover</h1>
 
             <div className="bg-surface p-4 rounded-xl shadow-lg mb-8 border border-gray-800/50">
                 <textarea 
