@@ -8,7 +8,7 @@ interface Fact {
     fact: string;
 }
 
-const FACT_TOPICS = ['Commerce', 'Business Studies', 'Economics', 'Computer Science', 'Informatics Practices', 'General Science', 'Physics', 'Chemistry', 'Biology'];
+const FACT_TOPICS = ['Commerce', 'Business Studies', 'Economics', 'Computer Science', 'Informatics Practices', 'General Science', 'Physics', 'Chemistry', 'Biology', 'Mathematics', 'English'];
 const GRADIENT_CLASSES = [
     'from-indigo-900/50 via-background to-background',
     'from-teal-900/50 via-background to-background',
@@ -27,41 +27,43 @@ const FALLBACK_FACT: Fact = {
 const getFactsFromAI = async (count: number): Promise<Fact[]> => {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
     
-    const factPromises = Array.from({ length: count }).map(async () => {
-        try {
-            const randomTopic = FACT_TOPICS[Math.floor(Math.random() * FACT_TOPICS.length)];
-            const prompt = `Generate a fun, interesting, and short 'Did you know...?' style fact about ${randomTopic}. The fact should be easily understandable by a high school student. The output must be a single JSON object with two keys: 'topic' (a short, one or two-word title for the subject, e.g., 'Gravity', 'Supply and Demand') and 'fact' (the full fact as a string).`;
+    const prompt = `Generate ${count} fun, interesting, and short 'Did you know...?' style facts. The facts should be about a variety of topics suitable for high school students from this list: ${FACT_TOPICS.join(', ')}. The output must be a single JSON object with a key "facts" which is an array of ${count} objects. Each object in the array should have two keys: 'topic' (a short, one or two-word title for the subject, e.g., 'Gravity', 'Supply and Demand') and 'fact' (the full fact as a string).`;
 
-            const geminiResponse = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
-                contents: prompt,
-                config: {
-                    responseMimeType: "application/json",
-                    responseSchema: {
-                        type: Type.OBJECT,
-                        properties: {
-                            topic: { type: Type.STRING },
-                            fact: { type: Type.STRING }
-                        },
-                        required: ["topic", "fact"]
-                    }
-                }
-            });
-
-            if (geminiResponse.text) {
-                const parsedFact = JSON.parse(geminiResponse.text);
-                if (parsedFact.fact && parsedFact.topic) {
-                    return parsedFact;
+    try {
+        const geminiResponse = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        facts: {
+                            type: Type.ARRAY,
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    topic: { type: Type.STRING },
+                                    fact: { type: Type.STRING }
+                                },
+                                required: ["topic", "fact"]
+                            }
+                        }
+                    },
+                    required: ["facts"]
                 }
             }
-        } catch (e) {
-            console.warn("A single fact generation failed.", e);
+        });
+        
+        const result = JSON.parse(geminiResponse.text);
+        if (result && result.facts && Array.isArray(result.facts)) {
+            return result.facts;
         }
-        return null;
-    });
-
-    const resolvedFacts = (await Promise.all(factPromises)).filter((f): f is Fact => f !== null);
-    return resolvedFacts;
+        return [];
+    } catch (e) {
+        console.error("Failed to generate facts.", e);
+        return [];
+    }
 };
 
 
@@ -73,25 +75,14 @@ const DiscoverReels: React.FC = () => {
     const observer = useRef<IntersectionObserver>();
     const initialFetchCalled = useRef(false);
 
-    // Initial fetch effect
     useEffect(() => {
-        if (initialFetchCalled.current) return; // Guard against React StrictMode double-calls
+        if (initialFetchCalled.current) return;
         initialFetchCalled.current = true;
 
         const loadInitialFacts = async () => {
-            try {
-                const initialFacts = await getFactsFromAI(3);
-                if (initialFacts.length > 0) {
-                    setFacts(initialFacts);
-                } else {
-                    setFacts([FALLBACK_FACT]);
-                }
-            } catch (error) {
-                console.error("Error fetching initial facts:", error);
-                setFacts([FALLBACK_FACT]);
-            } finally {
-                setStatus('success');
-            }
+            const initialFacts = await getFactsFromAI(3);
+            setFacts(initialFacts.length > 0 ? initialFacts : [FALLBACK_FACT]);
+            setStatus('success');
         };
 
         loadInitialFacts();
@@ -102,20 +93,15 @@ const DiscoverReels: React.FC = () => {
         if (status !== 'success') return;
         setStatus('fetching-more');
 
-        try {
-            const newFacts = await getFactsFromAI(2);
-            if (newFacts.length > 0) {
-                setFacts(prev => {
-                    const existingFacts = new Set(prev.map(f => f.fact));
-                    const uniqueNewFacts = newFacts.filter(f => !existingFacts.has(f.fact));
-                    return [...prev, ...uniqueNewFacts];
-                });
-            }
-        } catch (error) {
-            console.error("Error fetching more facts:", error);
-        } finally {
-            setStatus('success');
+        const newFacts = await getFactsFromAI(2);
+        if (newFacts.length > 0) {
+            setFacts(prev => {
+                const existingFacts = new Set(prev.map(f => f.fact));
+                const uniqueNewFacts = newFacts.filter(f => !existingFacts.has(f.fact));
+                return [...prev, ...uniqueNewFacts];
+            });
         }
+        setStatus('success');
     }, [status]);
 
 

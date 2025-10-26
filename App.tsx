@@ -82,13 +82,15 @@ const MainApp: React.FC = () => {
     if (!isAppReady) {
         return <LoadingScreen />;
     }
+    
+    const hideHeader = location.pathname === '/discover/reels';
 
     return (
         <div className={`min-h-screen bg-background relative ${currentUser ? 'app-background' : ''}`}>
             <div className="animated-gradient"></div>
             <AnimatedShapes />
             <div className="relative z-10">
-                {currentUser && location.pathname !== '/discover/reels' && <Header />}
+                {!hideHeader && currentUser && <Header />}
                 <main>
                     <div 
                         key={displayedLocation.pathname} 

@@ -1,11 +1,13 @@
-
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { 
     SparklesIcon, LightbulbIcon, DocumentDuplicateIcon, MicrophoneIcon, DocumentTextIcon, PencilAltIcon, CameraIcon, 
-    MusicNoteIcon, GlobeAltIcon, PresentationChartBarIcon, ShareIcon, BeakerIcon, UserGroupIcon, TranslateIcon, ClipboardListIcon 
+    MusicNoteIcon, GlobeAltIcon, PresentationChartBarIcon, ShareIcon, BeakerIcon, UserGroupIcon, TranslateIcon, ClipboardListIcon, RefreshIcon
 } from '../icons';
 import Modal from '../core/Modal';
+import { GoogleGenAI, Type } from "@google/genai";
+
+// Tool Components
 import AIVoiceTutor from './AIVoiceTutor';
 import AISummarizer from './AISummarizer';
 import AIWritingAssistant from './AIWritingAssistant';
@@ -23,6 +25,103 @@ import AITutor from './AITutor';
 import AIImageEditor from './AIImageEditor';
 import AIImageGenerator from './AIImageGenerator';
 import AINotesGenerator from './AINotesGenerator';
+
+
+const AIStudyTip: React.FC = () => {
+    const [tip, setTip] = useState('');
+    const [topic, setTopic] = useState('');
+    const [loading, setLoading] = useState(true);
+    const navigate = useNavigate();
+
+    const fetchTip = async () => {
+        setLoading(true);
+        try {
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+            const prompt = `Provide one unique, actionable study tip for a high school or college student. The tip should be concise and easy to understand. Bold the most important part of the tip using double asterisks, like **this**. Also provide a related 'topic' for the tip. Format the output as a JSON object with two keys: "topic" (a short, one or two-word title, e.g., 'Time Management', 'Active Recall') and "tip" (the full tip as a string).`;
+            
+            const geminiResponse = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: prompt,
+                 config: {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: Type.OBJECT,
+                        properties: {
+                            topic: { type: Type.STRING },
+                            tip: { type: Type.STRING }
+                        },
+                        required: ["topic", "tip"]
+                    }
+                }
+            });
+
+            const result = JSON.parse(geminiResponse.text);
+            setTip(result.tip);
+            setTopic(result.topic);
+        } catch (error) {
+            console.error("Error fetching study tip:", error);
+            setTopic("Time Management");
+            setTip("Try the **Pomodoro Technique**: study for 25 minutes, then take a 5-minute break. It's a great way to stay focused!");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchTip();
+    }, []);
+
+    const renderTip = (text: string) => {
+        if (!text) return null;
+        const parts = text.split(/(\*\*.*?\*\*)/g);
+        return (
+            <>
+                {parts.map((part, index) =>
+                    part.startsWith('**') && part.endsWith('**') ? (
+                        <strong key={index} className="text-yellow-300">{part.slice(2, -2)}</strong>
+                    ) : (
+                        part
+                    )
+                )}
+            </>
+        );
+    };
+
+    return (
+        <div className="p-6 rounded-2xl bg-gradient-to-br from-indigo-800 to-purple-800 shadow-lg border border-purple-600 group hover:shadow-2xl hover:shadow-primary/30 transition-all duration-300 hover:-translate-y-1 relative">
+            <div className="flex flex-col items-center text-center">
+                 <div className="p-4 bg-white/10 rounded-full mb-4">
+                     <LightbulbIcon className="w-10 h-10 text-yellow-300" />
+                 </div>
+                 <h2 className="text-2xl font-bold text-white">AI Study Tip of the Day</h2>
+                 <div className="text-indigo-200 mt-4 min-h-[72px] flex items-center justify-center">
+                    {loading ? (
+                        <p>Thinking of a new tip...</p>
+                    ) : (
+                        <p className="text-lg animate-fadeInUp">{renderTip(tip)}</p>
+                    )}
+                 </div>
+                  {!loading && topic && (
+                     <button 
+                        onClick={() => navigate('/ai', { state: { tool: 'tutor', topic: topic } })}
+                        className="mt-4 inline-flex items-center gap-2 px-6 py-3 bg-surface text-onBackground border border-gray-700 font-semibold rounded-lg hover:bg-primary hover:text-white transition-all duration-300 transform hover:scale-105 shadow-lg"
+                    >
+                        <LightbulbIcon className="w-5 h-5" />
+                        Learn More about {topic}
+                    </button>
+                 )}
+                 <button 
+                    onClick={fetchTip} 
+                    disabled={loading}
+                    className="absolute top-4 right-4 p-2 bg-white/10 rounded-full text-white hover:bg-white/20 transition-transform hover:rotate-90 disabled:opacity-50"
+                    aria-label="Get New Tip"
+                >
+                    <RefreshIcon className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+                </button>
+            </div>
+        </div>
+    );
+};
 
 
 const AIPage: React.FC = () => {
@@ -179,6 +278,8 @@ const AIPage: React.FC = () => {
                 <h1 className="text-3xl sm:text-4xl font-bold text-onBackground">AI Tools</h1>
                 <p className="mt-2 text-lg text-onSurface max-w-2xl mx-auto">Your personal AI-powered assistant to help you study smarter, not harder.</p>
             </div>
+            
+            <AIStudyTip />
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mt-12">
                 {toolOrder.map((key, index) => {

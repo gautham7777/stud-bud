@@ -1,13 +1,14 @@
-import React, { useState, useEffect, useRef } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
-import { db, storage } from '../../firebase';
-import { collection, query, orderBy, onSnapshot, addDoc, doc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
-import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { db } from '../../firebase';
+// FIX: Imported `addDoc` from `firebase/firestore` to allow creating new post documents.
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, arrayUnion, arrayRemove, addDoc } from 'firebase/firestore';
 import { DiscoverPost } from '../../types';
 import Avatar from '../core/Avatar';
 import Modal from '../core/Modal';
-import { PlusCircleIcon, HeartIcon, ChatBubbleIcon, CompassIcon } from '../icons';
+import { PlusCircleIcon, HeartIcon, ChatBubbleIcon, SparklesIcon } from '../icons';
 import CommentModal from './CommentModal';
 
 const DiscoverPage: React.FC = () => {
@@ -42,7 +43,7 @@ const DiscoverPage: React.FC = () => {
         const [imageFile, setImageFile] = useState<File | null>(null);
         const [imagePreview, setImagePreview] = useState<string | null>(null);
         const [isSubmitting, setIsSubmitting] = useState(false);
-        const fileInputRef = useRef<HTMLInputElement>(null);
+        const fileInputRef = React.useRef<HTMLInputElement>(null);
 
         const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
             if (e.target.files && e.target.files[0]) {
@@ -61,6 +62,8 @@ const DiscoverPage: React.FC = () => {
             let mediaUrl: string | undefined = undefined;
 
             if (imageFile) {
+                const { ref, uploadBytesResumable, getDownloadURL } = await import('firebase/storage');
+                const { storage } = await import('../../firebase');
                 const storageRef = ref(storage, `discover-posts/${currentUser.uid}/${Date.now()}_${imageFile.name}`);
                 const uploadTask = await uploadBytesResumable(storageRef, imageFile);
                 mediaUrl = await getDownloadURL(uploadTask.ref);
@@ -112,18 +115,6 @@ const DiscoverPage: React.FC = () => {
         );
     };
     
-    const ReelsCard = () => (
-        <Link to="/discover/reels" className="block p-6 rounded-2xl bg-gradient-to-br from-indigo-800 to-purple-800 shadow-lg border border-purple-600 group hover:shadow-2xl hover:shadow-primary/30 transition-all duration-300 hover:-translate-y-1">
-            <div className="flex flex-col items-center text-center">
-                 <div className="p-4 bg-white/10 rounded-full mb-4 group-hover:scale-110 transition-transform">
-                     <CompassIcon className="w-10 h-10 text-white" />
-                 </div>
-                 <h2 className="text-2xl font-bold text-white">Fun Fact Reels</h2>
-                 <p className="text-indigo-200 mt-2">Swipe through an endless feed of AI-generated fun facts and trivia!</p>
-            </div>
-        </Link>
-    );
-
     return (
         <div className="container mx-auto p-4 sm:p-8">
             {isCreateModalOpen && <CreatePostModal onClose={() => setCreateModalOpen(false)} />}
@@ -138,7 +129,18 @@ const DiscoverPage: React.FC = () => {
             </div>
 
             <div className="max-w-2xl mx-auto space-y-6">
-                <ReelsCard />
+                <Link to="/discover/reels" className="block p-6 rounded-2xl bg-gradient-to-br from-indigo-800 to-purple-800 shadow-lg border border-purple-600 group hover:shadow-2xl hover:shadow-primary/30 transition-all duration-300 hover:-translate-y-1 relative overflow-hidden">
+                    <div className="flex flex-col items-center text-center">
+                        <div className="p-4 bg-white/10 rounded-full mb-4">
+                            <SparklesIcon className="w-10 h-10 text-yellow-300" />
+                        </div>
+                        <h2 className="text-2xl font-bold text-white">Discover Reels</h2>
+                        <p className="mt-2 text-indigo-200">
+                            Scroll through an infinite feed of AI-generated fun facts to learn something new!
+                        </p>
+                    </div>
+                     <div className="absolute -bottom-8 -right-8 w-24 h-24 bg-white/5 rounded-full group-hover:scale-150 transition-transform duration-500"></div>
+                </Link>
 
                 {loading ? <p className="text-center">Loading posts...</p> : posts.map(post => (
                     <div key={post.id} className="bg-surface rounded-xl shadow-lg p-6 border border-gray-700/50">
