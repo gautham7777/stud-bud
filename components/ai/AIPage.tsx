@@ -1,5 +1,6 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { 
     SparklesIcon, LightbulbIcon, DocumentDuplicateIcon, MicrophoneIcon, DocumentTextIcon, PencilAltIcon, CameraIcon, 
     MusicNoteIcon, GlobeAltIcon, PresentationChartBarIcon, ShareIcon, BeakerIcon, UserGroupIcon, TranslateIcon, ClipboardListIcon 
@@ -26,6 +27,20 @@ import AINotesGenerator from './AINotesGenerator';
 
 const AIPage: React.FC = () => {
     const [activeTool, setActiveTool] = useState<string | null>(null);
+    const [initialQuery, setInitialQuery] = useState<string | null>(null);
+    const { state } = useLocation();
+    const navigate = useNavigate();
+
+    useEffect(() => {
+        if (state?.tool) {
+            setActiveTool(state.tool);
+            if (state?.topic) {
+                setInitialQuery(state.topic);
+            }
+            // Clear state after using it to prevent re-triggering
+            navigate(location.pathname, { replace: true, state: {} });
+        }
+    }, [state, navigate]);
     
     const toolConfig = {
         voiceTutor: { 
@@ -39,7 +54,7 @@ const AIPage: React.FC = () => {
             icon: LightbulbIcon, 
             title: 'AI Tutor', 
             description: 'Get explanations, answers, and practice problems for any subject via text.',
-            component: <AITutor />,
+            component: <AITutor initialQuery={activeTool === 'tutor' ? initialQuery : null} />,
             color: 'secondary'
         },
         notesGenerator: {
@@ -190,7 +205,7 @@ const AIPage: React.FC = () => {
                 })}
             </div>
 
-            <Modal isOpen={!!activeTool} onClose={() => setActiveTool(null)} className={`max-w-4xl h-[80vh] flex flex-col ${activeToolColorClass}`}>
+            <Modal isOpen={!!activeTool} onClose={() => { setActiveTool(null); setInitialQuery(null); }} className={`max-w-4xl h-[80vh] flex flex-col ${activeToolColorClass}`}>
                 {activeToolData && (
                     <>
                         <div className="flex items-center gap-4 mb-4 pb-4 border-b border-gray-700 flex-shrink-0">

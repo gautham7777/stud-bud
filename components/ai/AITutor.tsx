@@ -5,13 +5,19 @@ import { GoogleGenAI } from "@google/genai";
 import { AIResponse } from './common';
 
 
-const AITutor: React.FC = () => {
+const AITutor: React.FC<{ initialQuery?: string | null }> = ({ initialQuery }) => {
     const [query, setQuery] = useState('');
     const [selectedSubjectId, setSelectedSubjectId] = useState<number | null>(null);
     const [answer, setAnswer] = useState('');
     const [isAnswering, setIsAnswering] = useState(false);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (initialQuery) {
+            setQuery(initialQuery);
+        }
+    }, [initialQuery]);
 
      useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {

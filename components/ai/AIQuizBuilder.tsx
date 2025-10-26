@@ -54,7 +54,7 @@ const AIQuizBuilder: React.FC = () => {
             });
 
             const result = JSON.parse(geminiResponse.text);
-            if (result.questions && result.questions.length > 0) {
+            if (result && result.questions && Array.isArray(result.questions) && result.questions.length > 0) {
                 setQuiz(result.questions);
             } else {
                 throw new Error("AI returned no questions.");

@@ -48,7 +48,7 @@ const MessagesPage: React.FC = () => {
             conversations.sort((a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0));
 
             const sortedPartnerIdsFromConvos = conversations
-                .flatMap(conv => conv.participants)
+                .flatMap(conv => conv.participants || [])
                 .filter(uid => uid !== currentUser.uid);
             
             const allConnectionIds = currentUser.connections || [];

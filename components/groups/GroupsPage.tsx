@@ -22,7 +22,7 @@ const GroupsPage: React.FC = () => {
         if (!currentUser) return;
         
         setLoadingGroups(true);
-        const groupsQuery = query(collection(db, "studyGroups"));
+        const groupsQuery = query(collection(db, "studyGroups"), where("memberIds", "array-contains", currentUser.uid));
         const unsubscribeGroups = onSnapshot(groupsQuery, (snapshot) => {
             const groupsData = snapshot.docs.map(doc => sanitizeGroup(doc.data(), doc.id));
             setGroups(groupsData);
@@ -222,7 +222,7 @@ const GroupsPage: React.FC = () => {
                                 <span className="sm:inline">Create Group</span>
                             </button>
                         </div>
-                        {filteredDiscoverGroups.length > 0 ? renderGroupList(filteredDiscoverGroups, 'discover') : <p className="text-center text-onSurface col-span-full">No groups found matching your search. Why not create one?</p>}
+                        {filteredDiscoverGroups.length > 0 ? renderGroupList(filteredDiscoverGroups, 'discover') : <p className="text-center text-onSurface col-span-full">No groups found to discover. Try creating one!</p>}
                     </>
                 );
             case 'hosted':

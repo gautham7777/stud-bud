@@ -122,7 +122,9 @@ const AIConceptMapper: React.FC = () => {
                 }
             });
             const result = JSON.parse(geminiResponse.text);
-            
+            if (!result || !result.topic) {
+                throw new Error("AI returned an invalid map structure.");
+            }
             // Step 2: Generate the image from the structure
             await generateMindMapImage(result);
 

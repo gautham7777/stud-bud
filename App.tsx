@@ -20,6 +20,7 @@ import GroupPage from './components/groups/GroupPage';
 import UserProfilePage from './components/user/UserProfilePage';
 import DiscoverPage from './components/discover/DiscoverPage';
 import AIPage from './components/ai/AIPage';
+import DiscoverReels from './components/discover/DiscoverReels';
 
 const App: React.FC = () => {
     return (
@@ -87,7 +88,7 @@ const MainApp: React.FC = () => {
             <div className="animated-gradient"></div>
             <AnimatedShapes />
             <div className="relative z-10">
-                {currentUser && <Header />}
+                {currentUser && location.pathname !== '/discover/reels' && <Header />}
                 <main>
                     <div 
                         key={displayedLocation.pathname} 
@@ -102,6 +103,7 @@ const MainApp: React.FC = () => {
                             <Route path="/requests" element={<ProtectedRoute><RequestsPage /></ProtectedRoute>} />
                             <Route path="/messages" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
                             <Route path="/discover" element={<ProtectedRoute><DiscoverPage /></ProtectedRoute>} />
+                            <Route path="/discover/reels" element={<ProtectedRoute><DiscoverReels /></ProtectedRoute>} />
                             <Route path="/ai" element={<ProtectedRoute><AIPage /></ProtectedRoute>} />
                             <Route path="/group/:id" element={<ProtectedRoute><GroupPage /></ProtectedRoute>} />
                             <Route path="/user/:username" element={<ProtectedRoute><UserProfilePage /></ProtectedRoute>} />

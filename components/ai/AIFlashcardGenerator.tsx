@@ -63,7 +63,7 @@ const FlashcardGenerator: React.FC = () => {
             });
 
             const result = JSON.parse(geminiResponse.text);
-            if (result.flashcards && result.flashcards.length > 0) {
+            if (result && result.flashcards && Array.isArray(result.flashcards) && result.flashcards.length > 0) {
                 setFlashcards(result.flashcards);
             } else {
                 throw new Error("AI returned no flashcards.");

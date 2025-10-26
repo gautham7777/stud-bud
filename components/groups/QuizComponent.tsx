@@ -97,7 +97,7 @@ const QuizComponent: React.FC<{ group: StudyGroup }> = ({ group }) => {
             try {
                 const quizData = JSON.parse(geminiResponse.text.trim());
                 
-                if (!quizData.questions || quizData.questions.length === 0) {
+                if (!quizData || !quizData.questions || !Array.isArray(quizData.questions) || quizData.questions.length === 0) {
                      throw new Error("AI returned no questions.");
                 }
     

@@ -1,3 +1,5 @@
+
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
@@ -73,7 +75,7 @@ const HomePage: React.FC = () => {
             const prompt = `Tell me a fun, interesting, and short fact about ${randomCategory} suitable for students. Make sure to bold the most interesting part of the fact using double asterisks, like **this**.`;
 
             const geminiResponse = await ai.models.generateContent({
-                model: 'gemini-flash-lite-latest',
+                model: 'gemini-2.5-flash',
                 contents: prompt,
             });
             setFunFact(geminiResponse.text);
@@ -196,7 +198,7 @@ const HomePage: React.FC = () => {
                         const prompt = `A student accepted my study request about "${postData.description}". Write a short, friendly, and enthusiastic welcome message (around 20-30 words) to send them. Sound excited to start studying together.`;
                         
                         const geminiResponse = await ai.models.generateContent({
-                            model: 'gemini-flash-lite-latest',
+                            model: 'gemini-2.5-flash',
                             contents: prompt,
                         });
                         
@@ -249,16 +251,23 @@ const HomePage: React.FC = () => {
         if (marks.length === 0) {
             return { overallPercentage: 0, pieChartData: [], subjectAverages: [] };
         }
-        const totalObtained = marks.reduce((sum, mark) => sum + mark.marksObtained, 0);
-        const totalPossible = marks.reduce((sum, mark) => sum + mark.totalMarks, 0);
-        const overallPercentage = totalPossible > 0 ? (totalObtained / totalPossible) * 100 : 0;
+        
+// FIX: Replaced multiple `reduce` calls with a single `forEach` to resolve type inference issues.
+        const marksBySubject: { [key: string]: UserMark[] } = {};
+        let totalObtained = 0;
+        let totalPossible = 0;
 
-        const marksBySubject = marks.reduce((acc, mark) => {
+        (marks as UserMark[]).forEach(mark => {
+            totalObtained += mark.marksObtained;
+            totalPossible += mark.totalMarks;
             const subject = mark.subjectName;
-            if (!acc[subject]) acc[subject] = [];
-            acc[subject].push(mark);
-            return acc;
-        }, {} as { [key: string]: UserMark[] });
+            if (!marksBySubject[subject]) {
+                marksBySubject[subject] = [];
+            }
+            marksBySubject[subject].push(mark);
+        });
+
+        const overallPercentage = totalPossible > 0 ? (totalObtained / totalPossible) * 100 : 0;
 
         const subjectAverages = Object.entries(marksBySubject).map(([subjectName, subjectMarks]) => {
             const subjectTotalObtained = subjectMarks.reduce((sum, mark) => sum + mark.marksObtained, 0);

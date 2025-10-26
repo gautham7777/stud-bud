@@ -81,19 +81,24 @@ const MarksGraph: React.FC<{ marks: UserMark[], onDeleteMark: (markId: string) =
 
     // Memoize calculations
     const { overallPercentage, marksBySubject, subjectAverages, pieChartData } = useMemo(() => {
-        const totalObtained = marks.reduce((sum, mark) => sum + mark.marksObtained, 0);
-        const totalPossible = marks.reduce((sum, mark) => sum + mark.totalMarks, 0);
-        const overallPercentage = totalPossible > 0 ? (totalObtained / totalPossible) * 100 : 0;
+        // FIX: Replaced multiple `reduce` calls with a single `forEach` loop to resolve type inference issues with the 'marks' array and subsequent derived variables.
+        const marksBySubject: { [key: string]: UserMark[] } = {};
+        let totalObtained = 0;
+        let totalPossible = 0;
 
-        const marksBySubject = marks.reduce((acc, mark) => {
+        (marks as UserMark[]).forEach(mark => {
+            totalObtained += mark.marksObtained;
+            totalPossible += mark.totalMarks;
+
             const subject = mark.subjectName;
-            if (!acc[subject]) {
-                acc[subject] = [];
+            if (!marksBySubject[subject]) {
+                marksBySubject[subject] = [];
             }
-            acc[subject].push(mark);
-            return acc;
-        }, {} as { [key: string]: UserMark[] });
+            marksBySubject[subject].push(mark);
+        });
 
+        const overallPercentage = totalPossible > 0 ? (totalObtained / totalPossible) * 100 : 0;
+        
         const subjectAverages = Object.entries(marksBySubject).map(([subjectName, subjectMarks]) => {
             const subjectTotalObtained = subjectMarks.reduce((sum, mark) => sum + mark.marksObtained, 0);
             const subjectTotalPossible = subjectMarks.reduce((sum, mark) => sum + mark.totalMarks, 0);
@@ -126,7 +131,9 @@ const MarksGraph: React.FC<{ marks: UserMark[], onDeleteMark: (markId: string) =
             
             <div className="space-y-4">
                 <h3 className="font-semibold text-onBackground text-xl px-4">Detailed Breakdown</h3>
-                {Object.entries(marksBySubject).map(([subjectName, subjectMarks]) => {
+                {/* FIX: Changed from Object.entries to Object.keys to resolve a TypeScript type inference issue. */}
+                {Object.keys(marksBySubject).map((subjectName) => {
+                    const subjectMarks = marksBySubject[subjectName];
                     const isExpanded = expandedSubject === subjectName;
                     const subjectAvg = subjectAverages.find(s => s.subjectName === subjectName)?.percentage || 0;
 

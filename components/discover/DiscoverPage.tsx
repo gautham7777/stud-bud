@@ -1,26 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { db, storage } from '../../firebase';
-import { collection, query, orderBy, onSnapshot, addDoc, doc, updateDoc, arrayUnion, arrayRemove, increment } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, addDoc, doc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { DiscoverPost } from '../../types';
 import Avatar from '../core/Avatar';
-import { PaperClipIcon, HeartIcon, ChatBubbleIcon, XCircleIcon } from '../icons';
+import Modal from '../core/Modal';
+import { PlusCircleIcon, HeartIcon, ChatBubbleIcon, CompassIcon } from '../icons';
 import CommentModal from './CommentModal';
 
 const DiscoverPage: React.FC = () => {
     const { currentUser } = useAuth();
     const [posts, setPosts] = useState<DiscoverPost[]>([]);
     const [loading, setLoading] = useState(true);
-    const [postText, setPostText] = useState('');
-    const [postImageFile, setPostImageFile] = useState<File | null>(null);
-    const [postImagePreview, setPostImagePreview] = useState<string | null>(null);
-    const [isUploading, setIsUploading] = useState(false);
-    const [uploadProgress, setUploadProgress] = useState(0);
-    const [uploadError, setUploadError] = useState('');
-    const imageInputRef = useRef<HTMLInputElement>(null);
-
-    const [commentModalPostId, setCommentModalPostId] = useState<string | null>(null);
+    const [isCreateModalOpen, setCreateModalOpen] = useState(false);
+    const [commentPostId, setCommentPostId] = useState<string | null>(null);
 
     useEffect(() => {
         const postsQuery = query(collection(db, "discoverPosts"), orderBy("createdAt", "desc"));
@@ -31,162 +26,144 @@ const DiscoverPage: React.FC = () => {
         });
         return () => unsubscribe();
     }, []);
-
-    const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files[0]) {
-            const file = e.target.files[0];
-            setPostImageFile(file);
-            setPostImagePreview(URL.createObjectURL(file));
-            setUploadError('');
-        }
+    
+    const handleLikeToggle = async (post: DiscoverPost) => {
+        if (!currentUser) return;
+        const postRef = doc(db, "discoverPosts", post.id);
+        const alreadyLiked = post.likes.includes(currentUser.uid);
+        
+        await updateDoc(postRef, {
+            likes: alreadyLiked ? arrayRemove(currentUser.uid) : arrayUnion(currentUser.uid)
+        });
     };
-    
-    const cancelImage = () => {
-        setPostImageFile(null);
-        setPostImagePreview(null);
-        if(imageInputRef.current) imageInputRef.current.value = "";
-    }
 
-    const handleCreatePost = async () => {
-        if (!currentUser || (!postText.trim() && !postImageFile)) return;
+    const CreatePostModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+        const [text, setText] = useState('');
+        const [imageFile, setImageFile] = useState<File | null>(null);
+        const [imagePreview, setImagePreview] = useState<string | null>(null);
+        const [isSubmitting, setIsSubmitting] = useState(false);
+        const fileInputRef = useRef<HTMLInputElement>(null);
 
-        setIsUploading(true);
-        setUploadError('');
-
-        try {
-            let mediaUrl: string | undefined = undefined;
-            let mediaType: 'image' | undefined = undefined;
-    
-            if (postImageFile) {
-                mediaType = 'image';
-                const storageRef = ref(storage, `discover-media/${currentUser.uid}/${Date.now()}_${postImageFile.name}`);
-                const uploadTask = uploadBytesResumable(storageRef, postImageFile);
-    
-                mediaUrl = await new Promise<string>((resolve, reject) => {
-                    uploadTask.on('state_changed',
-                        (snapshot) => {
-                            const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-                            setUploadProgress(progress);
-                        },
-                        (error) => {
-                            console.error("Upload failed:", error);
-                            reject(error);
-                        },
-                        async () => {
-                            const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-                            resolve(downloadURL);
-                        }
-                    );
-                });
+        const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+            if (e.target.files && e.target.files[0]) {
+                const file = e.target.files[0];
+                setImageFile(file);
+                setImagePreview(URL.createObjectURL(file));
             }
-            
-            await addDoc(collection(db, "discoverPosts"), {
+        };
+
+        const handleSubmit = async (e: React.FormEvent) => {
+            e.preventDefault();
+            if (!text.trim() && !imageFile) return;
+            if (!currentUser) return;
+            setIsSubmitting(true);
+
+            let mediaUrl: string | undefined = undefined;
+
+            if (imageFile) {
+                const storageRef = ref(storage, `discover-posts/${currentUser.uid}/${Date.now()}_${imageFile.name}`);
+                const uploadTask = await uploadBytesResumable(storageRef, imageFile);
+                mediaUrl = await getDownloadURL(uploadTask.ref);
+            }
+
+            const newPost: Omit<DiscoverPost, 'id'> = {
                 creatorId: currentUser.uid,
                 creatorUsername: currentUser.username,
-                creatorPhotoURL: currentUser.photoURL || null,
-                text: postText,
-                mediaUrl,
-                mediaType,
+                creatorPhotoURL: currentUser.photoURL || undefined,
+                text: text.trim() || undefined,
+                mediaUrl: mediaUrl,
+                mediaType: mediaUrl ? 'image' : undefined,
                 likes: [],
                 commentCount: 0,
                 createdAt: Date.now(),
-            });
-    
-            setPostText('');
-            cancelImage();
-            setUploadProgress(0);
-        } catch (error) {
-            setUploadError("Failed to create post. You may not have permission to upload files.");
-        } finally {
-            setIsUploading(false);
-        }
-    };
-    
-    const handleLike = async (post: DiscoverPost) => {
-        if(!currentUser) return;
-        const postRef = doc(db, "discoverPosts", post.id);
-        const isLiked = post.likes.includes(currentUser.uid);
-        await updateDoc(postRef, {
-            likes: isLiked ? arrayRemove(currentUser.uid) : arrayUnion(currentUser.uid)
-        });
-    }
+            };
+            
+            await addDoc(collection(db, "discoverPosts"), newPost);
+            setIsSubmitting(false);
+            onClose();
+        };
 
-    const PostCard: React.FC<{ post: DiscoverPost }> = ({ post }) => {
-        const isLiked = currentUser ? post.likes.includes(currentUser.uid) : false;
-        
         return (
-            <div className="bg-surface rounded-xl shadow-lg p-6 flex flex-col gap-4 border border-gray-800/50">
-                <div className="flex items-center gap-3">
-                    <Avatar user={{uid: post.creatorId, username: post.creatorUsername, email: '', photoURL: post.creatorPhotoURL}} className="w-12 h-12"/>
-                    <div>
-                        <h3 className="text-lg font-bold text-onBackground">{post.creatorUsername}</h3>
-                        <p className="text-xs text-gray-400">{new Date(post.createdAt).toLocaleString()}</p>
+            <Modal isOpen={true} onClose={onClose}>
+                <h2 className="text-2xl font-bold mb-4 text-onBackground">Create a New Post</h2>
+                <form onSubmit={handleSubmit}>
+                    <textarea
+                        value={text}
+                        onChange={e => setText(e.target.value)}
+                        placeholder="What's on your mind?"
+                        className="w-full p-2 border border-gray-600 rounded-md bg-gray-700 text-onBackground focus:ring-primary focus:border-primary"
+                        rows={5}
+                    />
+                    <div className="mt-4">
+                        <button type="button" onClick={() => fileInputRef.current?.click()} className="text-primary hover:underline">
+                            {imagePreview ? 'Change Image' : 'Add Image'}
+                        </button>
+                        <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*"/>
                     </div>
-                </div>
-
-                {post.text && <p className="text-onSurface whitespace-pre-wrap">{post.text}</p>}
-
-                {post.mediaUrl && post.mediaType === 'image' && (
-                    <img src={post.mediaUrl} alt="Post media" className="rounded-lg max-h-[600px] w-full object-contain" />
-                )}
-
-                <div className="flex items-center justify-end gap-6 pt-2 border-t border-gray-700/50">
-                    <button onClick={() => handleLike(post)} className={`flex items-center gap-2 text-onSurface transition-colors duration-200 ${isLiked ? 'text-rose-500' : 'hover:text-rose-500'}`}>
-                        <HeartIcon filled={isLiked} className="w-6 h-6"/> 
-                        <span className="font-semibold">{post.likes.length}</span>
-                    </button>
-                    <button onClick={() => setCommentModalPostId(post.id)} className="flex items-center gap-2 text-onSurface hover:text-primary transition-colors duration-200">
-                        <ChatBubbleIcon className="w-6 h-6"/>
-                        <span className="font-semibold">{post.commentCount}</span>
-                    </button>
-                </div>
-            </div>
-        );
-    }
-    
-    return (
-        <div className="container mx-auto p-4 md:p-8 max-w-3xl">
-            {commentModalPostId && <CommentModal postId={commentModalPostId} onClose={() => setCommentModalPostId(null)} />}
-            <h1 className="text-3xl sm:text-4xl font-bold mb-6">Discover</h1>
-
-            <div className="bg-surface p-4 rounded-xl shadow-lg mb-8 border border-gray-800/50">
-                <textarea 
-                    value={postText}
-                    onChange={e => { setPostText(e.target.value); setUploadError(''); }}
-                    placeholder={`What's on your mind, ${currentUser?.username}?`}
-                    className="w-full bg-transparent p-2 text-lg text-onBackground placeholder-gray-500 focus:outline-none resize-none"
-                    rows={3}
-                />
-                {postImagePreview && (
-                    <div className="relative mt-2">
-                        <img src={postImagePreview} alt="Preview" className="rounded-lg max-h-80 w-auto" />
-                        <button onClick={cancelImage} className="absolute top-2 right-2 bg-black/50 rounded-full text-white">
-                            <XCircleIcon className="w-8 h-8"/>
+                    {imagePreview && <img src={imagePreview} alt="Preview" className="mt-4 max-h-60 rounded-lg"/>}
+                    <div className="flex justify-end gap-4 mt-6">
+                        <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-600 text-onBackground rounded-md hover:bg-gray-500 transition">Cancel</button>
+                        <button type="submit" disabled={isSubmitting} className="px-4 py-2 bg-primary text-white rounded-md hover:bg-indigo-500 transition disabled:opacity-50">
+                            {isSubmitting ? 'Posting...' : 'Post'}
                         </button>
                     </div>
-                )}
-                {isUploading && uploadProgress > 0 && (
-                    <div className="w-full bg-gray-700 rounded-full h-1 mt-2">
-                        <div className="bg-primary h-1 rounded-full" style={{ width: `${uploadProgress}%` }}></div>
-                    </div>
-                )}
-                {uploadError && <p className="text-danger text-sm mt-2">{uploadError}</p>}
-                <div className="flex justify-between items-center mt-2 pt-2 border-t border-gray-700/50">
-                    <input type="file" ref={imageInputRef} onChange={handleImageSelect} className="hidden" accept="image/*" />
-                    <button onClick={() => imageInputRef.current?.click()} className="p-2 text-onSurface hover:text-primary transition-colors" title="Add image">
-                        <PaperClipIcon className="w-6 h-6"/>
-                    </button>
-                    <button onClick={handleCreatePost} disabled={isUploading || (!postText.trim() && !postImageFile)} className="px-6 py-2 bg-gradient-to-r from-indigo-700 to-indigo-500 text-white font-semibold rounded-lg hover:from-indigo-600 hover:to-indigo-400 transition disabled:opacity-50 disabled:cursor-not-allowed">
-                        {isUploading ? 'Posting...' : 'Post'}
-                    </button>
-                </div>
+                </form>
+            </Modal>
+        );
+    };
+    
+    const ReelsCard = () => (
+        <Link to="/discover/reels" className="block p-6 rounded-2xl bg-gradient-to-br from-indigo-800 to-purple-800 shadow-lg border border-purple-600 group hover:shadow-2xl hover:shadow-primary/30 transition-all duration-300 hover:-translate-y-1">
+            <div className="flex flex-col items-center text-center">
+                 <div className="p-4 bg-white/10 rounded-full mb-4 group-hover:scale-110 transition-transform">
+                     <CompassIcon className="w-10 h-10 text-white" />
+                 </div>
+                 <h2 className="text-2xl font-bold text-white">Fun Fact Reels</h2>
+                 <p className="text-indigo-200 mt-2">Swipe through an endless feed of AI-generated fun facts and trivia!</p>
+            </div>
+        </Link>
+    );
+
+    return (
+        <div className="container mx-auto p-4 sm:p-8">
+            {isCreateModalOpen && <CreatePostModal onClose={() => setCreateModalOpen(false)} />}
+            {commentPostId && <CommentModal postId={commentPostId} onClose={() => setCommentPostId(null)} />}
+            
+            <div className="flex justify-between items-center mb-6">
+                <h1 className="text-3xl sm:text-4xl font-bold">Discover</h1>
+                <button onClick={() => setCreateModalOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-primary text-white font-semibold rounded-lg hover:bg-indigo-500 transition">
+                   <PlusCircleIcon className="w-5 h-5" />
+                   <span className="hidden sm:inline">New Post</span>
+                </button>
             </div>
 
-            {loading ? <p className="text-center text-onSurface">Loading feed...</p> : (
-                <div className="space-y-8">
-                    {posts.map(post => <PostCard key={post.id} post={post} />)}
-                </div>
-            )}
+            <div className="max-w-2xl mx-auto space-y-6">
+                <ReelsCard />
+
+                {loading ? <p className="text-center">Loading posts...</p> : posts.map(post => (
+                    <div key={post.id} className="bg-surface rounded-xl shadow-lg p-6 border border-gray-700/50">
+                        <div className="flex items-center gap-3 mb-4">
+                            <Avatar user={{uid: post.creatorId, username: post.creatorUsername, email:'', photoURL: post.creatorPhotoURL}} className="w-12 h-12" />
+                            <div>
+                                <p className="font-bold text-onBackground">{post.creatorUsername}</p>
+                                <p className="text-xs text-gray-400">{new Date(post.createdAt).toLocaleString()}</p>
+                            </div>
+                        </div>
+                        {post.text && <p className="text-onSurface mb-4">{post.text}</p>}
+                        {post.mediaUrl && <img src={post.mediaUrl} alt="Post media" className="rounded-lg max-h-[500px] w-full object-cover"/>}
+                        <div className="mt-4 pt-3 border-t border-gray-700 flex items-center gap-6 text-onSurface">
+                            <button onClick={() => handleLikeToggle(post)} className="flex items-center gap-2 hover:text-danger transition-colors">
+                                <HeartIcon filled={currentUser ? post.likes.includes(currentUser.uid) : false} className={`w-6 h-6 ${currentUser && post.likes.includes(currentUser.uid) ? 'text-danger' : ''}`} />
+                                <span>{post.likes.length}</span>
+                            </button>
+                            <button onClick={() => setCommentPostId(post.id)} className="flex items-center gap-2 hover:text-primary transition-colors">
+                                <ChatBubbleIcon className="w-6 h-6" />
+                                <span>{post.commentCount}</span>
+                            </button>
+                        </div>
+                    </div>
+                ))}
+            </div>
         </div>
     );
 };

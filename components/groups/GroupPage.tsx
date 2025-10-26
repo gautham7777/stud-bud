@@ -89,20 +89,28 @@ const GroupPage: React.FC = () => {
             setMessages(fetchedMessages);
         });
 
-        // Fetch join requests if current user is the host
+        return () => {
+            unsubGroup();
+            unsubContent();
+            unsubMessages();
+        };
+    }, [id, contentDocRef, groupDocRef]);
+
+    useEffect(() => {
+        if (!group || !currentUser || group.creatorId !== currentUser.uid) {
+            setJoinRequests([]); // Ensure requests are cleared if user is not creator
+            return;
+        }
+
+        // Fetch join requests only if current user is the host
         const requestsQuery = query(collection(db, "groupJoinRequests"), where("groupId", "==", id), where("status", "==", "pending"));
         const unsubRequests = onSnapshot(requestsQuery, (snapshot) => {
             const requestData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as GroupJoinRequest));
             setJoinRequests(requestData);
         });
 
-        return () => {
-            unsubGroup();
-            unsubContent();
-            unsubMessages();
-            unsubRequests();
-        };
-    }, [id, contentDocRef, groupDocRef]);
+        return () => unsubRequests();
+    }, [group, currentUser, id]);
     
     useEffect(() => {
         if (!group) return;

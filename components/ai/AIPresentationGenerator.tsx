@@ -58,7 +58,7 @@ const AIPresentationGenerator: React.FC = () => {
             });
 
             const result = JSON.parse(geminiResponse.text);
-            if (result.slides && result.slides.length > 0) {
+            if (result && result.slides && Array.isArray(result.slides) && result.slides.length > 0) {
                 setSlides(result.slides);
             } else {
                 throw new Error("AI returned no slides.");
