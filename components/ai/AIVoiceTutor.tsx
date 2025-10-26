@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { GoogleGenAI, LiveSession, LiveServerMessage, Modality } from '@google/genai';
 import { decode, decodeAudioData, createBlob } from '../../lib/audio';
-import { MicrophoneIcon, StopCircleIcon } from '../icons';
+import { MicrophoneIcon, StopCircleIcon, RefreshIcon } from '../icons';
 import Avatar from '../core/Avatar';
 import { useAuth } from '../auth/AuthProvider';
 
@@ -34,23 +34,41 @@ const AIVoiceTutor: React.FC = () => {
         transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [transcriptions]);
     
-    useEffect(() => {
-      // Cleanup on component unmount
-      return () => {
-        if (sessionPromiseRef.current) {
-            sessionPromiseRef.current.then(session => session.close());
-        }
-        cleanupAudio();
-      };
-    }, []);
-
     const cleanupAudio = () => {
         mediaStreamRef.current?.getTracks().forEach(track => track.stop());
-        scriptProcessorRef.current?.disconnect();
-        mediaStreamSourceRef.current?.disconnect();
-        inputAudioContextRef.current?.close();
-        outputAudioContextRef.current?.close();
+        mediaStreamRef.current = null;
+
+        if (scriptProcessorRef.current) {
+            try { scriptProcessorRef.current.disconnect(); } catch (e) {}
+            scriptProcessorRef.current = null;
+        }
+        if (mediaStreamSourceRef.current) {
+            try { mediaStreamSourceRef.current.disconnect(); } catch (e) {}
+            mediaStreamSourceRef.current = null;
+        }
+
+        if (inputAudioContextRef.current && inputAudioContextRef.current.state !== 'closed') {
+            inputAudioContextRef.current.close().catch(console.error);
+        }
+        inputAudioContextRef.current = null;
+
+        if (outputAudioContextRef.current && outputAudioContextRef.current.state !== 'closed') {
+            outputAudioContextRef.current.close().catch(console.error);
+        }
+        outputAudioContextRef.current = null;
     };
+
+    const stopConversation = () => {
+        if (sessionPromiseRef.current) {
+            sessionPromiseRef.current.then(session => session.close()).catch(console.error);
+        }
+    };
+
+    useEffect(() => {
+      return () => {
+        stopConversation();
+      };
+    }, []);
 
     const startConversation = async () => {
         try {
@@ -87,8 +105,17 @@ const AIVoiceTutor: React.FC = () => {
                         scriptProcessor.connect(inputAudioContextRef.current!.destination);
                     },
                     onmessage: async (message: LiveServerMessage) => {
+                        const interrupted = message.serverContent?.interrupted;
+                        if (interrupted) {
+                            for (const source of outputSourcesRef.current.values()) {
+                                source.stop();
+                            }
+                            outputSourcesRef.current.clear();
+                            nextStartTimeRef.current = 0;
+                        }
+
                         const base64Audio = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
-                        if (base64Audio) {
+                        if (base64Audio && outputAudioContextRef.current) {
                             const outputAudioContext = outputAudioContextRef.current!;
                             nextStartTimeRef.current = Math.max(nextStartTimeRef.current, outputAudioContext.currentTime);
                             const audioBuffer = await decodeAudioData(decode(base64Audio), outputAudioContext, 24000, 1);
@@ -128,11 +155,15 @@ const AIVoiceTutor: React.FC = () => {
                     onerror: (e: ErrorEvent) => {
                         console.error('Session error:', e);
                         setStatusText('An error occurred. Please try again.');
-                        stopConversation();
+                        if (sessionPromiseRef.current) {
+                            sessionPromiseRef.current.then(session => session.close()).catch(console.error);
+                        }
                     },
                     onclose: (e: CloseEvent) => {
                         setStatusText('Conversation ended. Click to start again.');
-                        stopConversation();
+                        setIsRecording(false);
+                        cleanupAudio();
+                        sessionPromiseRef.current = null;
                     },
                 },
                 config: {
@@ -140,7 +171,7 @@ const AIVoiceTutor: React.FC = () => {
                     speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } } },
                     inputAudioTranscription: {},
                     outputAudioTranscription: {},
-                    systemInstruction: 'You are a friendly and helpful study buddy. Keep your answers concise and encouraging.'
+                    systemInstruction: 'You are a friendly and helpful tutor. Keep your answers concise and encouraging.'
                 },
             });
 
@@ -151,13 +182,23 @@ const AIVoiceTutor: React.FC = () => {
         }
     };
 
-    const stopConversation = () => {
-        setIsRecording(false);
-        if (sessionPromiseRef.current) {
-            sessionPromiseRef.current.then(session => session.close()).catch(console.error);
-            sessionPromiseRef.current = null;
+    const handleRemoveLastTurn = () => {
+        for (const source of outputSourcesRef.current.values()) {
+            source.stop();
         }
-        cleanupAudio();
+        outputSourcesRef.current.clear();
+        nextStartTimeRef.current = 0;
+
+        setTranscriptions(prev => {
+            if (prev.length >= 2 && prev[prev.length - 1].speaker === 'model' && prev[prev.length - 2].speaker === 'user') {
+                return prev.slice(0, -2);
+            }
+            if (prev.length >= 1 && prev[prev.length - 1].speaker === 'model') {
+                return prev.slice(0, -1);
+            }
+            return prev;
+        });
+        setStatusText('I didn\'t get that. Please try again.');
     };
     
     return (
@@ -166,8 +207,19 @@ const AIVoiceTutor: React.FC = () => {
                 {transcriptions.map((t, i) => (
                     <div key={i} className={`flex items-start gap-3 ${t.speaker === 'user' ? 'justify-end' : 'justify-start'}`}>
                         {t.speaker === 'model' && <Avatar user={{uid: 'ai', email:'', username:'AI'}} className="w-8 h-8 flex-shrink-0" />}
-                        <div className={`max-w-md rounded-lg p-3 text-sm ${t.speaker === 'user' ? 'bg-primary text-white' : 'bg-surface text-onSurface'}`}>
-                            {t.text}
+                        <div className="relative group">
+                            <div className={`max-w-md rounded-lg p-3 text-sm whitespace-pre-wrap ${t.speaker === 'user' ? 'bg-primary text-white' : 'bg-surface text-onSurface'}`}>
+                                {t.text}
+                            </div>
+                             {t.speaker === 'model' && i === transcriptions.length - 1 && (
+                                <button
+                                    onClick={handleRemoveLastTurn}
+                                    className="absolute top-1/2 -left-3 -translate-y-1/2 -translate-x-full p-1.5 bg-surface rounded-full text-onSurface/60 opacity-0 group-hover:opacity-100 transition-all hover:text-primary hover:bg-gray-700"
+                                    title="I misspoke / Regenerate"
+                                >
+                                    <RefreshIcon className="w-4 h-4" />
+                                </button>
+                            )}
                         </div>
                         {t.speaker === 'user' && <Avatar user={currentUser} className="w-8 h-8 flex-shrink-0" />}
                     </div>

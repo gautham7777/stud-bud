@@ -6,7 +6,7 @@ import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../../firebase';
 import { User, Message } from '../../types';
 import Avatar from '../core/Avatar';
-import { sendMessageToBuddy } from '../../lib/messaging';
+import { sendMessageToPartner } from '../../lib/messaging';
 import { PaperClipIcon, TrashIcon } from '../icons';
 import Modal from '../core/Modal';
 
@@ -14,8 +14,8 @@ const MessagesPage: React.FC = () => {
     const { currentUser } = useAuth();
     const location = useLocation();
     const navigate = useNavigate();
-    const [buddies, setBuddies] = useState<User[]>([]);
-    const [selectedBuddy, setSelectedBuddy] = useState<User | null>(null);
+    const [partners, setPartners] = useState<User[]>([]);
+    const [selectedPartner, setSelectedPartner] = useState<User | null>(null);
     const [messages, setMessages] = useState<Message[]>([]);
     const [newMessage, setNewMessage] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -47,22 +47,22 @@ const MessagesPage: React.FC = () => {
             // Sort conversations by most recent message on the client
             conversations.sort((a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0));
 
-            const sortedBuddyIdsFromConvos = conversations
+            const sortedPartnerIdsFromConvos = conversations
                 .flatMap(conv => conv.participants)
                 .filter(uid => uid !== currentUser.uid);
             
             const allConnectionIds = currentUser.connections || [];
-            const unsortedBuddyIds = allConnectionIds.filter(uid => !sortedBuddyIdsFromConvos.includes(uid));
+            const unsortedPartnerIds = allConnectionIds.filter(uid => !sortedPartnerIdsFromConvos.includes(uid));
 
-            const finalBuddyIds = [...new Set([...sortedBuddyIdsFromConvos, ...unsortedBuddyIds])];
+            const finalPartnerIds = [...new Set([...sortedPartnerIdsFromConvos, ...unsortedPartnerIds])];
 
-            if (finalBuddyIds.length === 0) {
-                setBuddies([]);
-                setSelectedBuddy(null);
+            if (finalPartnerIds.length === 0) {
+                setPartners([]);
+                setSelectedPartner(null);
                 return;
             }
 
-            const buddyDataPromises = finalBuddyIds.map(async (uid) => {
+            const partnerDataPromises = finalPartnerIds.map(async (uid) => {
                 const userDoc = await getDoc(doc(db, "users", uid));
                 if (userDoc.exists()) {
                     return { uid: userDoc.id, ...userDoc.data() } as User;
@@ -70,29 +70,29 @@ const MessagesPage: React.FC = () => {
                 return null;
             });
 
-            const allBuddies = (await Promise.all(buddyDataPromises)).filter((b): b is User => b !== null);
+            const allPartners = (await Promise.all(partnerDataPromises)).filter((b): b is User => b !== null);
 
-            setBuddies(allBuddies);
+            setPartners(allPartners);
             
-            if (allBuddies.length > 0) {
-                const initialBuddyId = location.state?.selectedBuddyId;
-                const currentBuddyStillExists = selectedBuddy && allBuddies.some(b => b.uid === selectedBuddy.uid);
+            if (allPartners.length > 0) {
+                const initialPartnerId = location.state?.selectedPartnerId;
+                const currentPartnerStillExists = selectedPartner && allPartners.some(b => b.uid === selectedPartner.uid);
 
-                let buddyToSelect = selectedBuddy;
+                let partnerToSelect = selectedPartner;
 
-                if (initialBuddyId) {
-                    buddyToSelect = allBuddies.find(b => b.uid === initialBuddyId) || allBuddies[0];
+                if (initialPartnerId) {
+                    partnerToSelect = allPartners.find(b => b.uid === initialPartnerId) || allPartners[0];
                     navigate(location.pathname, { replace: true, state: {} });
-                } else if (!currentBuddyStillExists) {
-                    buddyToSelect = allBuddies[0];
+                } else if (!currentPartnerStillExists) {
+                    partnerToSelect = allPartners[0];
                 }
                 
-                if (buddyToSelect?.uid !== selectedBuddy?.uid) {
-                    setSelectedBuddy(buddyToSelect);
+                if (partnerToSelect?.uid !== selectedPartner?.uid) {
+                    setSelectedPartner(partnerToSelect);
                 }
 
             } else {
-                setSelectedBuddy(null);
+                setSelectedPartner(null);
             }
         });
 
@@ -100,12 +100,12 @@ const MessagesPage: React.FC = () => {
     }, [currentUser, location.state, navigate]);
 
     useEffect(() => {
-        if (!selectedBuddy || !currentUser) {
+        if (!selectedPartner || !currentUser) {
             setMessages([]);
             return;
         };
         
-        const conversationId = [currentUser.uid, selectedBuddy.uid].sort().join('-');
+        const conversationId = [currentUser.uid, selectedPartner.uid].sort().join('-');
         const messagesQuery = query(collection(db, "conversations", conversationId, "messages"), orderBy("timestamp", "asc"));
 
         const unsubscribe = onSnapshot(messagesQuery, (snapshot) => {
@@ -114,7 +114,7 @@ const MessagesPage: React.FC = () => {
         });
 
         return () => unsubscribe();
-    }, [selectedBuddy, currentUser]);
+    }, [selectedPartner, currentUser]);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -123,12 +123,12 @@ const MessagesPage: React.FC = () => {
     const handleSendMessage = async (e: React.FormEvent) => {
         e.preventDefault();
         const textToSend = newMessage.trim();
-        if (!textToSend || !currentUser || !selectedBuddy) return;
+        if (!textToSend || !currentUser || !selectedPartner) return;
 
         setNewMessage('');
 
         try {
-            await sendMessageToBuddy(currentUser.uid, selectedBuddy.uid, { text: textToSend });
+            await sendMessageToPartner(currentUser.uid, selectedPartner.uid, { text: textToSend });
         } catch (error: any) {
             if (error.message !== "Inappropriate content") {
                 console.error("Failed to send message:", error);
@@ -147,11 +147,11 @@ const MessagesPage: React.FC = () => {
     };
 
     const handleImageUpload = (file: File) => {
-        if (!currentUser || !selectedBuddy) return;
+        if (!currentUser || !selectedPartner) return;
 
         setIsUploadingImage(true);
         setUploadError('');
-        const storageRef = ref(storage, `chat-images/${[currentUser.uid, selectedBuddy.uid].sort().join('-')}/${Date.now()}_${file.name}`);
+        const storageRef = ref(storage, `chat-images/${[currentUser.uid, selectedPartner.uid].sort().join('-')}/${Date.now()}_${file.name}`);
         const uploadTask = uploadBytesResumable(storageRef, file);
 
         uploadTask.on('state_changed',
@@ -163,16 +163,16 @@ const MessagesPage: React.FC = () => {
             },
             async () => {
                 const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-                await sendMessageToBuddy(currentUser.uid, selectedBuddy.uid, { imageUrl: downloadURL });
+                await sendMessageToPartner(currentUser.uid, selectedPartner.uid, { imageUrl: downloadURL });
                 setIsUploadingImage(false);
             }
         );
     };
 
     const handleDeleteChat = async () => {
-        if (!currentUser || !selectedBuddy) return;
+        if (!currentUser || !selectedPartner) return;
 
-        const conversationId = [currentUser.uid, selectedBuddy.uid].sort().join('-');
+        const conversationId = [currentUser.uid, selectedPartner.uid].sort().join('-');
         const conversationRef = doc(db, "conversations", conversationId);
         const messagesColRef = collection(conversationRef, "messages");
 
@@ -195,20 +195,20 @@ const MessagesPage: React.FC = () => {
             // Delete conversation document
             finalBatch.delete(conversationRef);
 
-            // Remove buddy connection from both users
+            // Remove partner connection from both users
             const currentUserRef = doc(db, "users", currentUser.uid);
-            const selectedBuddyRef = doc(db, "users", selectedBuddy.uid);
+            const selectedPartnerRef = doc(db, "users", selectedPartner.uid);
 
-            finalBatch.update(currentUserRef, { connections: arrayRemove(selectedBuddy.uid) });
-            finalBatch.update(selectedBuddyRef, { connections: arrayRemove(currentUser.uid) });
+            finalBatch.update(currentUserRef, { connections: arrayRemove(selectedPartner.uid) });
+            finalBatch.update(selectedPartnerRef, { connections: arrayRemove(currentUser.uid) });
             
             await finalBatch.commit();
 
             // Update local state for a smooth UI transition
             setMessages([]);
-            const remainingBuddies = buddies.filter(b => b.uid !== selectedBuddy.uid);
-            setBuddies(remainingBuddies); // Update the buddies list
-            setSelectedBuddy(remainingBuddies.length > 0 ? remainingBuddies[0] : null);
+            const remainingPartners = partners.filter(b => b.uid !== selectedPartner.uid);
+            setPartners(remainingPartners); // Update the partners list
+            setSelectedPartner(remainingPartners.length > 0 ? remainingPartners[0] : null);
             
         } catch (error) {
             console.error("Error deleting chat:", error);
@@ -216,29 +216,29 @@ const MessagesPage: React.FC = () => {
         }
     };
     
-    const showChat = !isMobile || (isMobile && selectedBuddy);
-    const showContacts = !isMobile || (isMobile && !selectedBuddy);
+    const showChat = !isMobile || (isMobile && selectedPartner);
+    const showContacts = !isMobile || (isMobile && !selectedPartner);
 
     return (
         <div className="container mx-auto p-4 md:p-8">
             <h1 className="text-2xl sm:text-3xl font-bold mb-6">Messages</h1>
             <div className="flex flex-col md:flex-row rounded-lg h-[calc(100vh-12rem)] border border-gray-700/50 overflow-hidden">
-                {/* Buddies List */}
+                {/* Partners List */}
                 {showContacts && (
                     <div className="w-full md:w-1/3 border-b md:border-b-0 md:border-r border-gray-700/50 flex flex-col h-full bg-surface/30 backdrop-blur-lg">
                         <div className="p-4 border-b border-gray-700/50">
                             <h2 className="text-xl font-semibold text-onBackground">Contacts</h2>
                         </div>
                         <ul className="overflow-y-auto">
-                            {buddies.map(buddy => (
-                                <li key={buddy.uid} onClick={() => setSelectedBuddy(buddy)} className={`p-4 flex items-center gap-3 cursor-pointer transition-colors duration-[260ms] hover:bg-gray-800/50 ${selectedBuddy?.uid === buddy.uid ? 'bg-primary/30' : ''}`}>
-                                    <Avatar user={buddy} className="w-12 h-12" />
+                            {partners.map(partner => (
+                                <li key={partner.uid} onClick={() => setSelectedPartner(partner)} className={`p-4 flex items-center gap-3 cursor-pointer transition-colors duration-[260ms] hover:bg-gray-800/50 ${selectedPartner?.uid === partner.uid ? 'bg-primary/30' : ''}`}>
+                                    <Avatar user={partner} className="w-12 h-12" />
                                     <div>
-                                        <p className="font-semibold text-onBackground">{buddy.username}</p>
+                                        <p className="font-semibold text-onBackground">{partner.username}</p>
                                     </div>
                                 </li>
                             ))}
-                             {buddies.length === 0 && <p className="p-4 text-onSurface">No buddies yet.</p>}
+                             {partners.length === 0 && <p className="p-4 text-onSurface">No partners yet.</p>}
                         </ul>
                     </div>
                 )}
@@ -246,15 +246,15 @@ const MessagesPage: React.FC = () => {
                 {/* Chat Window */}
                 {showChat && (
                     <div className="w-full md:w-2/3 flex flex-col flex-1 h-full bg-surface">
-                        {selectedBuddy ? (
+                        {selectedPartner ? (
                             <>
                                 <div className="p-4 border-b border-gray-700 flex items-center justify-between">
                                     <div className="flex items-center gap-3">
                                         {isMobile && (
-                                            <button onClick={() => setSelectedBuddy(null)} className="mr-2 text-onSurface">&larr;</button>
+                                            <button onClick={() => setSelectedPartner(null)} className="mr-2 text-onSurface">&larr;</button>
                                         )}
-                                        <Avatar user={selectedBuddy} className="w-10 h-10" />
-                                        <h2 className="text-xl font-semibold text-onBackground">{selectedBuddy.username}</h2>
+                                        <Avatar user={selectedPartner} className="w-10 h-10" />
+                                        <h2 className="text-xl font-semibold text-onBackground">{selectedPartner.username}</h2>
                                     </div>
                                      <button onClick={handleDeleteChat} className="p-2 text-danger/70 hover:text-danger hover:bg-danger/20 rounded-full transition-colors" title="Unfriend & Delete Chat">
                                         <TrashIcon className="w-5 h-5" />
@@ -296,7 +296,7 @@ const MessagesPage: React.FC = () => {
                             </>
                         ) : (
                             <div className="flex-1 flex items-center justify-center text-onSurface">
-                                <p>Select a buddy to start chatting.</p>
+                                <p>Select a partner to start chatting.</p>
                             </div>
                         )}
                     </div>

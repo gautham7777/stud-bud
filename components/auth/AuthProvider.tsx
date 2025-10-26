@@ -193,9 +193,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         // 4. Remove user from connections of other users
         if (connections && connections.length > 0) {
-            connections.forEach(buddyId => {
-                const buddyRef = doc(db, "users", buddyId);
-                batch.update(buddyRef, { connections: arrayRemove(uid) });
+            connections.forEach(partnerId => {
+                const partnerRef = doc(db, "users", partnerId);
+                batch.update(partnerRef, { connections: arrayRemove(uid) });
             });
         }
         

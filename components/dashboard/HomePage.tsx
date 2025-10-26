@@ -10,7 +10,7 @@ import StudySessionModal from './StudySessionModal';
 import { getSubjectName } from '../../lib/helpers';
 import { ALL_SUBJECTS } from '../../constants';
 import { GoogleGenAI } from "@google/genai";
-import { sendMessageToBuddy } from '../../lib/messaging';
+import { sendMessageToPartner } from '../../lib/messaging';
 
 const AnimatedStatCard: React.FC<{ icon: React.ReactNode; label: string; value: number; colorClass: string }> = ({ icon, label, value, colorClass }) => {
     const [count, setCount] = useState(0);
@@ -54,8 +54,8 @@ const HomePage: React.FC = () => {
     const navigate = useNavigate();
     const [incomingRequests, setIncomingRequests] = useState<StudyRequest[]>([]);
     const [loadingRequests, setLoadingRequests] = useState(true);
-    const [buddies, setBuddies] = useState<User[]>([]);
-    const [loadingBuddies, setLoadingBuddies] = useState(true);
+    const [partners, setPartners] = useState<User[]>([]);
+    const [loadingPartners, setLoadingPartners] = useState(true);
     const [myGroups, setMyGroups] = useState<StudyGroup[]>([]);
     const [loadingGroups, setLoadingGroups] = useState(true);
     const [funFact, setFunFact] = useState('');
@@ -65,7 +65,10 @@ const HomePage: React.FC = () => {
         setLoadingFact(true);
         try {
             const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
-            const prompt = "Tell me a fun, interesting, and short fact suitable for students.";
+            const categories = ['science', 'history', 'nature', 'technology', 'space', 'amazing animals'];
+            const randomCategory = categories[Math.floor(Math.random() * categories.length)];
+            const prompt = `Tell me a fun, interesting, and short fact about ${randomCategory} suitable for students. Make sure to bold the most interesting part of the fact using double asterisks, like **this**.`;
+
             const geminiResponse = await ai.models.generateContent({
                 model: 'gemini-flash-lite-latest',
                 contents: prompt,
@@ -73,7 +76,7 @@ const HomePage: React.FC = () => {
             setFunFact(geminiResponse.text);
         } catch (error) {
             console.error("Error fetching fun fact:", error);
-            setFunFact("The first computer mouse was made of wood.");
+            setFunFact("The first computer mouse was **made of wood**.");
         } finally {
             setLoadingFact(false);
         }
@@ -112,32 +115,32 @@ const HomePage: React.FC = () => {
     
     useEffect(() => {
         if (!currentUser?.connections) {
-            setBuddies([]);
-            setLoadingBuddies(false);
+            setPartners([]);
+            setLoadingPartners(false);
             return;
         }
         
-        const fetchBuddies = async () => {
-             setLoadingBuddies(true);
+        const fetchPartners = async () => {
+             setLoadingPartners(true);
             if (currentUser.connections.length > 0) {
                  try {
-                    const buddyPromises = currentUser.connections.map(uid => getDoc(doc(db, "users", uid)));
-                    const buddyDocs = await Promise.all(buddyPromises);
-                    const buddyData = buddyDocs
+                    const partnerPromises = currentUser.connections.map(uid => getDoc(doc(db, "users", uid)));
+                    const partnerDocs = await Promise.all(partnerPromises);
+                    const partnerData = partnerDocs
                         .filter(doc => doc.exists())
                         .map(doc => ({uid: doc.id, ...doc.data()}) as User);
-                    setBuddies(buddyData);
+                    setPartners(partnerData);
                  } catch (error) {
-                    console.error("Error fetching buddies: ", error);
-                    setBuddies([]);
+                    console.error("Error fetching partners: ", error);
+                    setPartners([]);
                  }
             } else {
-                setBuddies([]);
+                setPartners([]);
             }
-            setLoadingBuddies(false);
+            setLoadingPartners(false);
         };
 
-        fetchBuddies();
+        fetchPartners();
     }, [currentUser?.connections]);
 
     const handleRequestResponse = async (request: StudyRequest, newStatus: 'accepted' | 'declined') => {
@@ -193,15 +196,15 @@ const HomePage: React.FC = () => {
                     }
                     
                     // Send the message
-                    await sendMessageToBuddy(currentUser.uid, request.fromUserId, { text: welcomeMessage });
+                    await sendMessageToPartner(currentUser.uid, request.fromUserId, { text: welcomeMessage });
 
                 } catch (aiError) {
                     console.error("Error generating or sending AI message, sending default:", aiError);
                     // Fallback to sending the default message if AI fails
-                    await sendMessageToBuddy(currentUser.uid, request.fromUserId, { text: "Hey! I'm looking forward to studying with you!" });
+                    await sendMessageToPartner(currentUser.uid, request.fromUserId, { text: "Hey! I'm looking forward to studying with you!" });
                 }
                 
-                navigate('/messages', { state: { selectedBuddyId: request.fromUserId } });
+                navigate('/messages', { state: { selectedPartnerId: request.fromUserId } });
             }
         } catch (error) {
             console.error("Error updating request: ", error);
@@ -215,6 +218,23 @@ const HomePage: React.FC = () => {
             await incrementStudyTime(Math.round(durationInSeconds));
         }
     };
+    
+    const renderFunFact = (text: string) => {
+        if (!text) return null;
+        const parts = text.split(/(\*\*.*?\*\*)/g);
+        return (
+            <>
+                {parts.map((part, index) =>
+                    part.startsWith('**') && part.endsWith('**') ? (
+                        <strong key={index}>{part.slice(2, -2)}</strong>
+                    ) : (
+                        part
+                    )
+                )}
+            </>
+        );
+    };
+
 
     return (
         <div className="container mx-auto p-4 sm:p-8 space-y-12">
@@ -223,7 +243,7 @@ const HomePage: React.FC = () => {
                 <h1 className="text-3xl sm:text-4xl font-bold text-onBackground">Activity Hub</h1>
                 <p className="mt-2 text-lg text-onSurface">Welcome back, {currentUser?.username}! Here's your study overview.</p>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-white mt-6">
-                    <AnimatedStatCard icon={<UsersIcon className="w-8 h-8"/>} label="Study Buddies" value={buddies.length} colorClass="bg-gradient-to-br from-indigo-500 to-purple-600" />
+                    <AnimatedStatCard icon={<UsersIcon className="w-8 h-8"/>} label="Partners" value={partners.length} colorClass="bg-gradient-to-br from-indigo-500 to-purple-600" />
                     <AnimatedStatCard icon={<UsersIcon className="w-8 h-8"/>} label="Groups" value={myGroups.length} colorClass="bg-gradient-to-br from-teal-500 to-cyan-600" />
                     <button onClick={openStudyModal} className="p-4 sm:p-6 rounded-xl flex items-center gap-4 bg-gradient-to-br from-yellow-400 to-amber-500 transition-transform hover:scale-105 shadow-lg hover:shadow-amber-500/30">
                         <div className="p-3 bg-white/20 rounded-lg"><ClockIcon className="w-8 h-8"/></div>
@@ -237,21 +257,21 @@ const HomePage: React.FC = () => {
 
              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="bg-surface/50 border border-gray-700 p-6 rounded-lg shadow-lg">
-                    <h2 className="text-lg sm:text-xl font-semibold flex items-center gap-2 text-onBackground"><UsersIcon/> My Buddies</h2>
-                    {loadingBuddies ? ( <p className="mt-4 text-onSurface">Loading buddies...</p> ) : 
-                    buddies.length > 0 ? (
+                    <h2 className="text-lg sm:text-xl font-semibold flex items-center gap-2 text-onBackground"><UsersIcon/> My Partners</h2>
+                    {loadingPartners ? ( <p className="mt-4 text-onSurface">Loading partners...</p> ) : 
+                    partners.length > 0 ? (
                         <ul className="mt-4 space-y-3 max-h-60 overflow-y-auto pr-2">
-                            {buddies.map(buddy => (
-                                <li key={buddy.uid} className="flex items-center justify-between p-3 bg-background rounded-lg transition hover:bg-gray-800 border border-gray-700">
+                            {partners.map(partner => (
+                                <li key={partner.uid} className="flex items-center justify-between p-3 bg-background rounded-lg transition hover:bg-gray-800 border border-gray-700">
                                     <div className="flex items-center gap-3">
-                                        <Avatar user={buddy} className="w-10 h-10"/>
-                                        <span className="font-semibold text-onBackground">{buddy.username}</span>
+                                        <Avatar user={partner} className="w-10 h-10"/>
+                                        <span className="font-semibold text-onBackground">{partner.username}</span>
                                     </div>
-                                    <Link to="/messages" state={{ selectedBuddyId: buddy.uid }} className="text-sm text-primary hover:underline font-semibold">Message</Link>
+                                    <Link to="/messages" state={{ selectedPartnerId: partner.uid }} className="text-sm text-primary hover:underline font-semibold">Message</Link>
                                 </li>
                             ))}
                         </ul>
-                    ) : ( <p className="mt-4 text-onSurface">No active buddies yet. <Link to="/requests" className="text-primary hover:underline">Find a partner</Link> to get started!</p> )}
+                    ) : ( <p className="mt-4 text-onSurface">No active partners yet. <Link to="/requests" className="text-primary hover:underline">Find a partner</Link> to get started!</p> )}
                 </div>
                 <div className="bg-surface/50 border border-gray-700 p-6 rounded-lg shadow-lg">
                     <h2 className="text-lg sm:text-xl font-semibold flex items-center gap-2 text-onBackground"><ChatBubbleIcon/> Pending Requests</h2>
@@ -262,8 +282,8 @@ const HomePage: React.FC = () => {
                                 <li key={req.id} className="flex items-center justify-between p-2 bg-background rounded-md border border-gray-700">
                                     <span className="text-onSurface">Request from <span className="font-bold text-onBackground">{req.fromUsername}</span></span>
                                     <div className="flex gap-2">
-                                        <button onClick={() => handleRequestResponse(req, 'accepted')} className="p-1 text-green-400 hover:bg-green-500/20 rounded-full transition-all duration-[195ms] transform hover:scale-125" title="Accept"><CheckCircleIcon className="w-6 h-6" /></button>
-                                        <button onClick={() => handleRequestResponse(req, 'declined')} className="p-1 text-red-400 hover:bg-red-500/20 rounded-full transition-all duration-[195ms] transform hover:scale-125" title="Decline"><XCircleIcon className="w-6 h-6" /></button>
+                                        <button onClick={() => handleRequestResponse(req, 'accepted')} className="p-1 text-green-400 hover:bg-green-500/20 rounded-full transition-all duration-200 transform hover:scale-125" title="Accept"><CheckCircleIcon className="w-6 h-6" /></button>
+                                        <button onClick={() => handleRequestResponse(req, 'declined')} className="p-1 text-red-400 hover:bg-red-500/20 rounded-full transition-all duration-200 transform hover:scale-125" title="Decline"><XCircleIcon className="w-6 h-6" /></button>
                                     </div>
                                 </li>
                             ))}
@@ -296,8 +316,8 @@ const HomePage: React.FC = () => {
                 </div>
                 <div className="flex-grow text-center md:text-left">
                     <h2 className="text-2xl font-bold mb-2">Did You Know?</h2>
-                    <p className="text-lg italic">
-                        {loadingFact ? 'Thinking of something cool...' : funFact}
+                    <p className="text-lg">
+                        {loadingFact ? 'Thinking of something cool...' : renderFunFact(funFact)}
                     </p>
                 </div>
                 <button 

@@ -32,8 +32,8 @@ const GroupPage: React.FC = () => {
     const [newName, setNewName] = useState('');
     const [isMembersListVisible, setIsMembersListVisible] = useState(false);
     const [isInviteDropdownOpen, setIsInviteDropdownOpen] = useState(false);
-    const [buddies, setBuddies] = useState<User[]>([]);
-    const [loadingBuddies, setLoadingBuddies] = useState(true);
+    const [partners, setPartners] = useState<User[]>([]);
+    const [loadingPartners, setLoadingPartners] = useState(true);
     const imageInputRef = useRef<HTMLInputElement>(null);
     const [isUploadingImage, setIsUploadingImage] = useState(false);
     const [isScheduleModalOpen, setScheduleModalOpen] = useState(false);
@@ -119,32 +119,32 @@ const GroupPage: React.FC = () => {
 
     useEffect(() => {
         if (!currentUser?.connections) {
-            setBuddies([]);
-            setLoadingBuddies(false);
+            setPartners([]);
+            setLoadingPartners(false);
             return;
         }
 
-        const fetchBuddies = async () => {
-            setLoadingBuddies(true);
+        const fetchPartners = async () => {
+            setLoadingPartners(true);
             if (currentUser.connections.length > 0) {
                 try {
-                    const buddyPromises = currentUser.connections.map(uid => getDoc(doc(db, "users", uid)));
-                    const buddyDocs = await Promise.all(buddyPromises);
-                    const buddyData = buddyDocs
+                    const partnerPromises = currentUser.connections.map(uid => getDoc(doc(db, "users", uid)));
+                    const partnerDocs = await Promise.all(partnerPromises);
+                    const partnerData = partnerDocs
                         .filter(doc => doc.exists())
                         .map(doc => ({ uid: doc.id, ...doc.data() }) as User);
-                    setBuddies(buddyData);
+                    setPartners(partnerData);
                 } catch (error) {
-                    console.error("Error fetching buddies: ", error);
-                    setBuddies([]);
+                    console.error("Error fetching partners: ", error);
+                    setPartners([]);
                 }
             } else {
-                setBuddies([]);
+                setPartners([]);
             }
-            setLoadingBuddies(false);
+            setLoadingPartners(false);
         };
 
-        fetchBuddies();
+        fetchPartners();
     }, [currentUser?.connections]);
 
     useEffect(() => {
@@ -241,10 +241,10 @@ const GroupPage: React.FC = () => {
         setIsEditingName(false);
     };
 
-    const handleInviteBuddy = async (buddyId: string) => {
+    const handleInvitePartner = async (partnerId: string) => {
         if (!id) return;
         await updateDoc(groupDocRef, {
-            memberIds: arrayUnion(buddyId)
+            memberIds: arrayUnion(partnerId)
         });
         setIsInviteDropdownOpen(false);
     };
@@ -309,7 +309,7 @@ const GroupPage: React.FC = () => {
     if (!sharedContent) return <LoadingSpinner />;
 
     const isCreator = currentUser?.uid === group.creatorId;
-    const buddiesToInvite = buddies.filter(buddy => !group.memberIds.includes(buddy.uid));
+    const partnersToInvite = partners.filter(partner => !group.memberIds.includes(partner.uid));
     const showPinnedSession = group.scheduledSession && group.scheduledSession.scheduledAt > Date.now();
 
     return (
@@ -507,18 +507,18 @@ const GroupPage: React.FC = () => {
                             
                             {isInviteDropdownOpen && (
                                 <div className="absolute bottom-full right-0 mb-2 p-2 w-full bg-background rounded-lg border border-gray-600 shadow-xl max-h-60 overflow-y-auto z-10 animate-fadeInUp">
-                                    {loadingBuddies ? (
-                                        <p className="text-onSurface p-2">Loading buddies...</p>
-                                    ) : buddiesToInvite.length > 0 ? (
+                                    {loadingPartners ? (
+                                        <p className="text-onSurface p-2">Loading partners...</p>
+                                    ) : partnersToInvite.length > 0 ? (
                                         <ul className="space-y-2">
-                                            {buddiesToInvite.map(buddy => (
-                                                <li key={buddy.uid} className="flex items-center justify-between gap-3 p-2 rounded-md hover:bg-surface/50">
+                                            {partnersToInvite.map(partner => (
+                                                <li key={partner.uid} className="flex items-center justify-between gap-3 p-2 rounded-md hover:bg-surface/50">
                                                     <div className="flex items-center gap-2">
-                                                        <Avatar user={buddy} className="w-8 h-8" />
-                                                        <span className="font-semibold text-onBackground">{buddy.username}</span>
+                                                        <Avatar user={partner} className="w-8 h-8" />
+                                                        <span className="font-semibold text-onBackground">{partner.username}</span>
                                                     </div>
                                                     <button 
-                                                        onClick={() => handleInviteBuddy(buddy.uid)}
+                                                        onClick={() => handleInvitePartner(partner.uid)}
                                                         className="px-3 py-1 text-sm bg-secondary/80 hover:bg-secondary text-white rounded-md transition"
                                                     >
                                                         Invite
@@ -527,7 +527,7 @@ const GroupPage: React.FC = () => {
                                             ))}
                                         </ul>
                                     ) : (
-                                        <p className="text-onSurface p-2 text-sm text-center">No buddies available to invite.</p>
+                                        <p className="text-onSurface p-2 text-sm text-center">No partners available to invite.</p>
                                     )}
                                 </div>
                             )}

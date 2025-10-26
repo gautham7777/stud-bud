@@ -87,7 +87,7 @@ const Header: React.FC = () => {
             key={item.path}
             to={item.path}
             onClick={() => isMobileMenuOpen && setIsMobileMenuOpen(false)}
-            className={`flex items-center gap-2 px-3 py-2 rounded-md font-medium transition-all duration-[260ms] text-sm ${location.pathname === item.path ? 'bg-gradient-to-r from-indigo-700 to-indigo-500 text-onPrimary shadow-md' : 'text-onSurface hover:bg-surface/50 hover:text-onBackground'}`}
+            className={`flex items-center gap-2 px-3 py-2 rounded-md font-medium transition-all duration-200 text-sm ${location.pathname === item.path ? 'bg-gradient-to-r from-indigo-700 to-indigo-500 text-onPrimary shadow-md' : 'text-onSurface hover:bg-surface/50 hover:text-onBackground'}`}
         >
             <item.icon className="h-5 w-5" />
             <span>{item.label}</span>
@@ -98,7 +98,7 @@ const Header: React.FC = () => {
         <Link
             to={profileItem.path}
             onClick={() => isMobileMenuOpen && setIsMobileMenuOpen(false)}
-            className={`flex items-center gap-2 px-3 py-2 rounded-md font-medium transition-all duration-[260ms] text-sm ${location.pathname === profileItem.path ? 'bg-gradient-to-r from-indigo-700 to-indigo-500 text-onPrimary shadow-md' : 'text-onSurface hover:bg-surface/50 hover:text-onBackground'}`}
+            className={`flex items-center gap-2 px-3 py-2 rounded-md font-medium transition-all duration-200 text-sm ${location.pathname === profileItem.path ? 'bg-gradient-to-r from-indigo-700 to-indigo-500 text-onPrimary shadow-md' : 'text-onSurface hover:bg-surface/50 hover:text-onBackground'}`}
         >
             <Avatar user={currentUser} className="h-5 w-5" />
             <span>{profileItem.label}</span>
@@ -124,7 +124,7 @@ const Header: React.FC = () => {
                     <div className="flex items-center">
                         <Link to="/" className="flex-shrink-0 flex items-center gap-2 text-primary font-bold text-xl transition-transform hover:scale-105">
                             <BookOpenIcon className="h-8 w-8" />
-                            <span className="text-onBackground hidden sm:inline">StudyBuddy</span>
+                            <span className="text-onBackground hidden sm:inline">Tooty</span>
                         </Link>
                         <div className="hidden md:flex items-center ml-10">
                             <div className="flex items-baseline space-x-2">
@@ -134,7 +134,7 @@ const Header: React.FC = () => {
                             <div className="relative ml-4" ref={timeDropdownRef}>
                                 <button
                                     onClick={() => setTimeDropdownOpen(!isTimeDropdownOpen)}
-                                    className={`flex items-center gap-2 px-3 py-2 rounded-md font-medium transition-all duration-[260ms] text-sm ${isTimeDropdownOpen ? 'bg-surface/80 text-onBackground' : 'text-onSurface hover:bg-surface/50 hover:text-onBackground'}`}
+                                    className={`flex items-center gap-2 px-3 py-2 rounded-md font-medium transition-all duration-200 text-sm ${isTimeDropdownOpen ? 'bg-surface/80 text-onBackground' : 'text-onSurface hover:bg-surface/50 hover:text-onBackground'}`}
                                 >
                                     <ClockIcon className="h-5 w-5"/>
                                     <span>Time Studied</span>
@@ -183,7 +183,7 @@ const Header: React.FC = () => {
 
                         <div className="hidden md:flex items-center gap-4">
                             {profileNavLink}
-                            <button onClick={logout} className="p-2 rounded-full text-onSurface hover:text-primary hover:bg-surface/50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-background focus:ring-primary transition-colors duration-[260ms]">
+                            <button onClick={logout} className="p-2 rounded-full text-onSurface hover:text-primary hover:bg-surface/50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-background focus:ring-primary transition-colors duration-200">
                                 <LogoutIcon className="h-6 w-6" />
                             </button>
                         </div>

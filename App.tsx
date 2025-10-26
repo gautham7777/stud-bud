@@ -1,6 +1,4 @@
-// FIX: Correctly import useState and useEffect from React. The previous import was syntactically incorrect.
 import React, { useState, useEffect } from 'react';
-import ReactDOM from 'react-dom/client';
 import { HashRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
 
 import { AuthProvider, useAuth } from './components/auth/AuthProvider';
@@ -85,7 +83,7 @@ const MainApp: React.FC = () => {
     }
 
     return (
-        <div className="min-h-screen bg-background relative app-background">
+        <div className={`min-h-screen bg-background relative ${currentUser ? 'app-background' : ''}`}>
             <div className="animated-gradient"></div>
             <AnimatedShapes />
             <div className="relative z-10">

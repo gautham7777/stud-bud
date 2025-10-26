@@ -21,6 +21,7 @@ import FlashcardGenerator from './AIFlashcardGenerator';
 import AITutor from './AITutor';
 import AIImageEditor from './AIImageEditor';
 import AIImageGenerator from './AIImageGenerator';
+import AINotesGenerator from './AINotesGenerator';
 
 
 const AIPage: React.FC = () => {
@@ -40,6 +41,13 @@ const AIPage: React.FC = () => {
             description: 'Get explanations, answers, and practice problems for any subject via text.',
             component: <AITutor />,
             color: 'secondary'
+        },
+        notesGenerator: {
+            icon: DocumentTextIcon,
+            title: 'AI Notes Generator',
+            description: 'Generate comprehensive study notes on any topic and download them as a PDF.',
+            component: <AINotesGenerator />,
+            color: 'purple-500',
         },
         flashcards: { 
             icon: DocumentDuplicateIcon, 
@@ -142,7 +150,7 @@ const AIPage: React.FC = () => {
     };
     
     const toolOrder: Array<keyof typeof toolConfig> = [
-        'voiceTutor', 'tutor', 'flashcards', 'imageGenerator', 'diagramGenerator', 'planner', 'summarizer', 'writingAssistant', 
+        'voiceTutor', 'tutor', 'notesGenerator', 'flashcards', 'imageGenerator', 'diagramGenerator', 'planner', 'summarizer', 'writingAssistant', 
         'problemSolver', 'textToSpeech', 'researchAssistant', 'presentationGenerator', 'conceptMapper',
         'quizBuilder', 'mockInterviewer', 'languageTutor'
     ];
@@ -204,5 +212,4 @@ const AIPage: React.FC = () => {
     );
 };
 
-// FIX: Added the missing default export for the AIPage component.
 export default AIPage;

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%236366f1' stroke='white' stroke-width='1'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253' /%3E%3C/svg%3E" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Study Buddy Finder</title>
+    <title>Tooty</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -52,6 +52,9 @@
 </script>
 <style>
   /* Global scrollbar hiding */
+  html {
+    scroll-behavior: smooth;
+  }
   *::-webkit-scrollbar {
       display: none;
   }
@@ -63,7 +66,6 @@
   body {
     font-family: 'Poppins', sans-serif;
     background-color: #111827;
-    background-image: radial-gradient(circle at top left, #1e1b4b, #111827 50%);
     overflow-x: hidden;
   }
 
@@ -118,7 +120,7 @@
     to { opacity: 1; transform: translateY(0); }
   }
   .animate-fadeInUp {
-    animation: fadeInUp 0.13s ease-in-out forwards;
+    animation: fadeInUp 0.5s ease-out forwards;
   }
   
   @keyframes fadeInDown {
@@ -126,7 +128,7 @@
     to { opacity: 1; transform: translateY(0); }
   }
   .animate-fadeInDown {
-    animation: fadeInDown 0.13s ease-in-out forwards;
+    animation: fadeInDown 0.5s ease-out forwards;
   }
 
   @keyframes fadeIn {
@@ -134,7 +136,7 @@
     to { opacity: 1; }
   }
   .animate-fadeIn {
-    animation: fadeIn 0.13s ease-in-out forwards;
+    animation: fadeIn 0.5s ease-out forwards;
   }
 
   @keyframes scaleIn {
@@ -142,7 +144,7 @@
     to { opacity: 1; transform: scale(1); }
   }
   .animate-scaleIn {
-    animation: scaleIn 0.13s ease-out forwards;
+    animation: scaleIn 0.3s ease-out forwards;
   }
 
   @keyframes fadeOut {
@@ -150,7 +152,7 @@
     to { opacity: 0; }
   }
   .animate-fadeOut {
-    animation: fadeOut 0.13s ease-out forwards;
+    animation: fadeOut 0.5s ease-out forwards;
   }
 
   @keyframes slideInFromRight {
@@ -158,7 +160,7 @@
     to { opacity: 1; transform: translateX(0); }
   }
   .animate-slideInFromRight {
-    animation: slideInFromRight 0.13s ease-out forwards;
+    animation: slideInFromRight 0.5s ease-out forwards;
   }
 
   @keyframes slideInFromLeft {
@@ -166,7 +168,7 @@
     to { opacity: 1; transform: translateX(0); }
   }
   .animate-slideInFromLeft {
-    animation: slideInFromLeft 0.13s ease-out forwards;
+    animation: slideInFromLeft 0.5s ease-out forwards;
   }
 
   @keyframes slideOutToLeft {
@@ -174,7 +176,7 @@
     to { opacity: 0; transform: translateX(-50px); }
   }
   .animate-slideOutToLeft {
-    animation: slideOutToLeft 0.13s ease-out forwards;
+    animation: slideOutToLeft 0.5s ease-out forwards;
   }
 
   @keyframes slideOutToRight {
@@ -182,7 +184,7 @@
     to { opacity: 0; transform: translateX(50px); }
   }
   .animate-slideOutToRight {
-    animation: slideOutToRight 0.13s ease-out forwards;
+    animation: slideOutToRight 0.5s ease-out forwards;
   }
   
   .app-background {
@@ -205,10 +207,6 @@
   @keyframes text-glow {
       0%, 100% { text-shadow: 0 0 5px #fff, 0 0 10px #fff, 0 0 15px #6366f1, 0 0 20px #6366f1; }
       50% { text-shadow: 0 0 10px #fff, 0 0 20px #6366f1, 0 0 30px #6366f1, 0 0 40px #6366f1; }
-  }
-  @keyframes progress-bar-load {
-      from { width: 0%; }
-      to { width: 100%; }
   }
   @keyframes letter-reveal {
       from { opacity: 0; transform: translateY(20px); }

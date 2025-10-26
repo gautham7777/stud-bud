@@ -115,7 +115,7 @@ const AuthPage: React.FC = () => {
         { icon: ClipboardListIcon, name: "Shared Scratchpad", description: "Take notes, draft ideas, and share resources in a persistent group workspace." },
         { icon: CheckCircleIcon, name: "Group Quizzes", description: "Test your knowledge with fun, AI-generated quizzes and compete for the top spot." },
         { icon: UsersIcon, name: "Smart Matching", description: "Post a request for help and get connected with students who can assist you." },
-        { icon: ChatBubbleIcon, name: "Instant Messaging", description: "Communicate with your study buddies and groups through our integrated chat." },
+        { icon: ChatBubbleIcon, name: "Instant Messaging", description: "Communicate with your study partners and groups through our integrated chat." },
     ];
 
     return (
@@ -127,7 +127,7 @@ const AuthPage: React.FC = () => {
                     <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
                         <div className="flex items-center justify-center gap-3">
                             <BookOpenIcon className="h-10 w-auto text-primary" />
-                            <h1 className="text-3xl sm:text-4xl font-bold text-onBackground">StudyBuddy.com</h1>
+                            <h1 className="text-3xl sm:text-4xl font-bold text-onBackground">Tooty.com</h1>
                         </div>
                         <h2 className="mt-2 text-center text-lg font-medium text-onSurface">
                             {getTitle()}
@@ -146,7 +146,7 @@ const AuthPage: React.FC = () => {
                                     {error && <p className="text-sm text-red-400 mt-2 text-center">{error}</p>}
                                     {message && <p className="text-sm text-green-400 mt-2 text-center">{message}</p>}
                                     <div>
-                                        <button type="submit" disabled={isSubmitting} className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-gradient-to-r from-indigo-700 to-indigo-500 hover:from-indigo-600 hover:to-indigo-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:opacity-50 transition-all duration-[260ms] transform active:scale-95 hover:shadow-lg hover:shadow-primary/30">
+                                        <button type="submit" disabled={isSubmitting} className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-gradient-to-r from-indigo-700 to-indigo-500 hover:from-indigo-600 hover:to-indigo-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:opacity-50 transition-all duration-200 transform active:scale-95 hover:shadow-lg hover:shadow-primary/30">
                                             {isSubmitting ? 'Sending...' : 'Send Reset Link'}
                                         </button>
                                     </div>
@@ -181,7 +181,7 @@ const AuthPage: React.FC = () => {
                                     {error && <p className="text-sm text-red-400 mt-2 text-center">{error}</p>}
                                     {message && <p className="text-sm text-green-400 mt-2 text-center">{message}</p>}
                                     <div>
-                                        <button type="submit" disabled={isSubmitting} className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-gradient-to-r from-indigo-700 to-indigo-500 hover:from-indigo-600 hover:to-indigo-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:opacity-50 transition-all duration-[260ms] transform active:scale-95 hover:shadow-lg hover:shadow-primary/30">
+                                        <button type="submit" disabled={isSubmitting} className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-gradient-to-r from-indigo-700 to-indigo-500 hover:from-indigo-600 hover:to-indigo-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:opacity-50 transition-all duration-200 transform active:scale-95 hover:shadow-lg hover:shadow-primary/30">
                                             {isSubmitting ? 'Processing...' : (view === 'login' ? 'Sign in' : 'Create Account')}
                                         </button>
                                     </div>
@@ -200,7 +200,7 @@ const AuthPage: React.FC = () => {
                                 <div className="mt-6">
                                     <div className="relative"><div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-600" /></div><div className="relative flex justify-center text-sm"><span className="px-2 bg-surface text-onSurface">Or</span></div></div>
                                     <div className="mt-6">
-                                        <button onClick={() => { setView(view === 'login' ? 'signup' : 'login'); setError(''); setMessage(''); }} className="w-full inline-flex justify-center py-2 px-4 border border-gray-600 rounded-md shadow-sm bg-surface text-sm font-medium text-onSurface hover:bg-gray-700 transition-colors duration-[195ms]">
+                                        <button onClick={() => { setView(view === 'login' ? 'signup' : 'login'); setError(''); setMessage(''); }} className="w-full inline-flex justify-center py-2 px-4 border border-gray-600 rounded-md shadow-sm bg-surface text-sm font-medium text-onSurface hover:bg-gray-700 transition-colors duration-200">
                                             {view === 'login' ? 'Create an account' : 'Sign in instead'}
                                         </button>
                                     </div>
@@ -221,7 +221,7 @@ const AuthPage: React.FC = () => {
 
             <section id="why-us" className="py-16 sm:py-24 px-4 sm:px-6 lg:px-8">
                 <div className="container mx-auto text-center">
-                    <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-onBackground">Why Choose StudyBuddy?</h2>
+                    <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-onBackground">Why Choose Tooty?</h2>
                     <p className="mt-4 text-lg leading-8 text-onSurface">Connect, collaborate, and conquer your courses like never before.</p>
                     <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-12">
                         {whyUsPoints.map((point) => (
@@ -274,7 +274,7 @@ const AuthPage: React.FC = () => {
             <section id="creators" className="py-16 sm:py-24 px-4 sm:px-6 lg:px-8 bg-surface/50">
                  <div className="container mx-auto text-center">
                     <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-onBackground">Meet the Creator</h2>
-                    <p className="mt-4 text-lg leading-8 text-onSurface">The passionate creator behind StudyBuddy.</p>
+                    <p className="mt-4 text-lg leading-8 text-onSurface">The passionate creator behind Tooty.</p>
                     <div className="mt-16 flex justify-center">
                         <div className="flex flex-col items-center">
                             <UsersIcon className="h-24 w-24 text-primary"/>
@@ -285,8 +285,8 @@ const AuthPage: React.FC = () => {
             </section>
 
             <footer className="py-8 px-4 text-center text-onSurface text-sm border-t border-gray-700">
-                <p>&copy; {new Date().getFullYear()} StudyBuddy.com. All rights reserved.</p>
-                <p className="mt-2">For support, contact us at: <a href="mailto:studybuddypartners@gmail.com" className="font-semibold text-primary hover:underline">studybuddypartners@gmail.com</a></p>
+                <p>&copy; {new Date().getFullYear()} Tooty.com. All rights reserved.</p>
+                <p className="mt-2">For support, contact us at: <a href="mailto:tootypartners@gmail.com" className="font-semibold text-primary hover:underline">tootypartners@gmail.com</a></p>
             </footer>
         </div>
     );

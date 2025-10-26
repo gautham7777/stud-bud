@@ -2,7 +2,7 @@ import { doc, collection, addDoc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { isMessageInappropriate } from './moderation';
 
-export const sendMessageToBuddy = async (senderId: string, receiverId: string, content: { text?: string, imageUrl?: string }) => {
+export const sendMessageToPartner = async (senderId: string, receiverId: string, content: { text?: string, imageUrl?: string }) => {
     if ((!content.text || !content.text.trim()) && !content.imageUrl) return;
     if (!senderId || !receiverId) return;
 
