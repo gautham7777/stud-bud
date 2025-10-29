@@ -70,6 +70,7 @@ const getFactsFromAI = async (count: number): Promise<Fact[]> => {
 const DiscoverReels: React.FC = () => {
     const [status, setStatus] = useState<'loading' | 'success' | 'fetching-more'>('loading');
     const [facts, setFacts] = useState<Fact[]>([]);
+    const [canFetchMore, setCanFetchMore] = useState(true);
     const navigate = useNavigate();
     
     const observer = useRef<IntersectionObserver>();
@@ -81,7 +82,12 @@ const DiscoverReels: React.FC = () => {
 
         const loadInitialFacts = async () => {
             const initialFacts = await getFactsFromAI(3);
-            setFacts(initialFacts.length > 0 ? initialFacts : [FALLBACK_FACT]);
+            if (initialFacts.length > 0) {
+                setFacts(initialFacts);
+            } else {
+                setFacts([FALLBACK_FACT]);
+                setCanFetchMore(false); // Stop fetching if initial fails
+            }
             setStatus('success');
         };
 
@@ -90,7 +96,7 @@ const DiscoverReels: React.FC = () => {
 
 
     const fetchMoreFacts = useCallback(async () => {
-        if (status !== 'success') return;
+        if (status !== 'success' || !canFetchMore) return;
         setStatus('fetching-more');
 
         const newFacts = await getFactsFromAI(2);
@@ -100,13 +106,15 @@ const DiscoverReels: React.FC = () => {
                 const uniqueNewFacts = newFacts.filter(f => !existingFacts.has(f.fact));
                 return [...prev, ...uniqueNewFacts];
             });
+        } else {
+            setCanFetchMore(false); // Stop fetching if API returns no new facts
         }
         setStatus('success');
-    }, [status]);
+    }, [status, canFetchMore]);
 
 
     const lastFactElementRef = useCallback((node: HTMLDivElement) => {
-        if (status !== 'success') return;
+        if (status !== 'success' || !canFetchMore) return;
         if (observer.current) observer.current.disconnect();
         
         observer.current = new IntersectionObserver(entries => {
@@ -116,7 +124,7 @@ const DiscoverReels: React.FC = () => {
         }, { threshold: 0.8 });
 
         if (node) observer.current.observe(node);
-    }, [status, fetchMoreFacts]);
+    }, [status, fetchMoreFacts, canFetchMore]);
 
 
     return (
